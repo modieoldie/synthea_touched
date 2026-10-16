@@ -72,9 +72,28 @@ cardiovascular:
   #   death: 0.00069
   heart_rate: # https://www.columbiadoctors.org/condition/vital-signs-body-temperature-pulse-rate-respiration-rate-blood-pressure
     normal: [60, 100]
+    # used when lifecycle.vitals.heart_and_respiration_rate.model = continuous
+    # (ContinuousVitalSignGenerator). Values are reflected into "normal"; the per-person baseline is
+    # uniform inside "normal" shrunk by baseline_margin (a fraction of its width) on each side.
+    # slow/fast: mean-reverting deviations (SD, time constant); measurement_sd: per-minute noise.
+    # Placeholder values, not yet calibrated against observed inpatient data.
+    continuous:
+      baseline_margin: 0.1
+      slow_sd: 5.0
+      slow_tau_hours: 48
+      fast_sd: 4.0
+      fast_tau_hours: 4
+      measurement_sd: 2.0
 respiratory:
   respiration_rate: # https://www.columbiadoctors.org/condition/vital-signs-body-temperature-pulse-rate-respiration-rate-blood-pressure
     normal: [12, 16]
+    continuous: # see cardiovascular.heart_rate.continuous
+      baseline_margin: 0.1
+      slow_sd: 0.6
+      slow_tau_hours: 48
+      fast_sd: 0.6
+      fast_tau_hours: 4
+      measurement_sd: 0.5
 weightloss:
   # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4990387/
   adherence: 0.605

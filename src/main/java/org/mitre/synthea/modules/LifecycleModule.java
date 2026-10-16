@@ -14,11 +14,13 @@ import org.mitre.synthea.export.rif.identifiers.Passport;
 import org.mitre.synthea.helpers.Attributes;
 import org.mitre.synthea.helpers.Attributes.Inventory;
 import org.mitre.synthea.helpers.Config;
+import org.mitre.synthea.helpers.ContinuousVitalSignGenerator;
 import org.mitre.synthea.helpers.PhysiologyValueGenerator;
 import org.mitre.synthea.helpers.RandomCollection;
 import org.mitre.synthea.helpers.SimpleCSV;
 import org.mitre.synthea.helpers.TrendingValueGenerator;
 import org.mitre.synthea.helpers.Utilities;
+import org.mitre.synthea.helpers.ValueGenerator;
 import org.mitre.synthea.modules.BloodPressureValueGenerator.SysDias;
 import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.agents.behaviors.planeligibility.QualifyingConditionCodesEligibility;
@@ -41,6 +43,9 @@ import org.mitre.synthea.world.geography.Location;
  * LifecycleModule is responsible for managing the lifecycle of a Person.
  */
 public final class LifecycleModule extends Module {
+  /** Pinned to the value computed before it was declared, so existing population
+   * snapshots (-u / -i) still load. */
+  private static final long serialVersionUID = -6014268350836185324L;
   private static final Map<GrowthChart.ChartType, GrowthChart> growthChart =
       GrowthChart.loadCharts();
   private static final List<LinkedHashMap<String, String>> weightForLengthChart =
@@ -721,6 +726,16 @@ public final class LifecycleModule extends Module {
       BiometricsConfig.doubles("cardiovascular.heart_rate.normal");
   private static final double[] RESPIRATION_RATE_NORMAL =
       BiometricsConfig.doubles("respiratory.respiration_rate.normal");
+  /** "trending" (default): new random trend every timestep; "continuous": see
+   * ContinuousVitalSignGenerator, independent of generate.timestep. */
+  private static final boolean CONTINUOUS_HEART_AND_RESPIRATION_RATE = "continuous".equals(
+      Config.get("lifecycle.vitals.heart_and_respiration_rate.model", "trending"));
+  private static final Map<String, Object> HEART_RATE_CONTINUOUS =
+      CONTINUOUS_HEART_AND_RESPIRATION_RATE
+      ? ContinuousVitalSignGenerator.loadConfig("cardiovascular.heart_rate.continuous") : null;
+  private static final Map<String, Object> RESPIRATION_RATE_CONTINUOUS =
+      CONTINUOUS_HEART_AND_RESPIRATION_RATE
+      ? ContinuousVitalSignGenerator.loadConfig("respiratory.respiration_rate.continuous") : null;
 
   /**
    * Calculate this person's vital signs,
@@ -876,6 +891,13 @@ public final class LifecycleModule extends Module {
     person.setVitalSign(VitalSign.CARBON_DIOXIDE, person.rand(CO2_RANGE));
     person.setVitalSign(VitalSign.SODIUM, person.rand(SODIUM_RANGE));
 
+    if (CONTINUOUS_HEART_AND_RESPIRATION_RATE) {
+      setContinuousVitalSign(person, VitalSign.HEART_RATE, HEART_RATE_NORMAL,
+          HEART_RATE_CONTINUOUS);
+      setContinuousVitalSign(person, VitalSign.RESPIRATION_RATE, RESPIRATION_RATE_NORMAL,
+          RESPIRATION_RATE_CONTINUOUS);
+      return;
+    }
     long timestep = Long.parseLong(Config.get("generate.timestep"));
     double heartStart = person.rand(HEART_RATE_NORMAL);
     double heartEnd = person.rand(HEART_RATE_NORMAL);
@@ -888,6 +910,20 @@ public final class LifecycleModule extends Module {
     person.setVitalSign(VitalSign.RESPIRATION_RATE,
         new TrendingValueGenerator(person, 1.0, respirationStart, respirationEnd,
             time, time + timestep, RESPIRATION_RATE_NORMAL[0], RESPIRATION_RATE_NORMAL[1]));
+  }
+
+  /**
+   * Give the person a ContinuousVitalSignGenerator for this vital sign, once. It replaces
+   * only a missing or lifecycle trending generator, so a value a module set explicitly
+   * (VitalSign state) is left alone.
+   */
+  private static void setContinuousVitalSign(Person person, VitalSign vitalSign,
+      double[] range, Map<String, Object> config) {
+    ValueGenerator current = person.vitalSigns.get(vitalSign);
+    if (current == null || current instanceof TrendingValueGenerator) {
+      person.setVitalSign(vitalSign, new ContinuousVitalSignGenerator(person,
+          vitalSign.ordinal() + 1, range[0], range[1], config));
+    }
   }
 
   /**
