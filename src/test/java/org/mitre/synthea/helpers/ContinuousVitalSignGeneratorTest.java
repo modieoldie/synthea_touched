@@ -4,10 +4,16 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.util.Map;
 
 import org.junit.Test;
 import org.mitre.synthea.world.agents.Person;
+import org.mitre.synthea.world.concepts.HealthRecord.EncounterType;
+import org.mitre.synthea.world.concepts.VitalSign;
 
 public class ContinuousVitalSignGeneratorTest {
   private static final long HOUR = 3_600_000L;
@@ -17,6 +23,13 @@ public class ContinuousVitalSignGeneratorTest {
     Map<String, Object> config =
         ContinuousVitalSignGenerator.loadConfig("cardiovascular.heart_rate.continuous");
     return new ContinuousVitalSignGenerator(new Person(seed), 1, 60, 100, config);
+  }
+
+  private static ContinuousVitalSignGenerator heartRate(Person person,
+      ConditionVitalSignEffects effects) {
+    Map<String, Object> config =
+        ContinuousVitalSignGenerator.loadConfig("cardiovascular.heart_rate.continuous");
+    return new ContinuousVitalSignGenerator(person, 1, 60, 100, config, effects);
   }
 
   @Test
@@ -45,6 +58,79 @@ public class ContinuousVitalSignGeneratorTest {
       g.getValue(START + i * HOUR);
     }
     assertEquals(before, person.getCount());
+  }
+
+  @Test
+  public void conditionEffectsChangeNothingWithoutConditions() {
+    Person person = new Person(42L);
+    ContinuousVitalSignGenerator plain = heartRate(person, null);
+    ContinuousVitalSignGenerator withEffects =
+        heartRate(person, ConditionVitalSignEffects.load("heart_rate"));
+    for (int i = 0; i < 72; i++) {
+      assertEquals(plain.getValue(START + i * HOUR), withEffects.getValue(START + i * HOUR), 0.0);
+    }
+  }
+
+  @Test
+  public void conditionEffectsShiftTheHealthyPath() {
+    Person person = ConditionVitalSignEffectsTest.patient(42L);
+    ConditionVitalSignEffects effects = ConditionVitalSignEffects.load("heart_rate");
+    ContinuousVitalSignGenerator plain = heartRate(person, null);
+    ContinuousVitalSignGenerator withEffects = heartRate(person, effects);
+    long onset = START + 24 * HOUR;
+    person.record.encounterStart(onset, EncounterType.EMERGENCY);
+    person.record.conditionStart(onset, "91302008");  // sepsis
+    double sepsis = effects.offset(person, onset);
+    assertTrue(sepsis > 0);
+    for (int i = 0; i < 72; i++) {
+      long time = START + i * HOUR;
+      // not reflected into the normal range: conditions can take the value above 100
+      double expected = time < onset ? plain.getValue(time)
+          : Math.min(effects.getMaximumValue(), plain.getValue(time) + sepsis);
+      assertEquals(expected, withEffects.getValue(time), 1e-9);
+    }
+  }
+
+  @Test
+  public void conditionEffectsDoNotConsumeThePersonsRandomNumbers() {
+    Person person = ConditionVitalSignEffectsTest.patient(7L);
+    person.record.encounterStart(START, EncounterType.EMERGENCY);
+    person.record.conditionStart(START, "91302008");
+    ContinuousVitalSignGenerator g =
+        heartRate(person, ConditionVitalSignEffects.load("heart_rate"));
+    long before = person.getCount();
+    for (int i = 0; i < 100; i++) {
+      g.getValue(START + i * HOUR);
+    }
+    assertEquals(before, person.getCount());
+  }
+
+  /** Population snapshots (-u / -i) serialize people with their vital sign generators. */
+  @Test
+  public void survivesSerialization() throws Exception {
+    Person person = ConditionVitalSignEffectsTest.patient(42L);
+    person.record.encounterStart(START, EncounterType.EMERGENCY);
+    person.record.conditionStart(START, "91302008");
+    person.setVitalSign(VitalSign.HEART_RATE,
+        heartRate(person, ConditionVitalSignEffects.load("heart_rate")));
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (ObjectOutputStream out = new ObjectOutputStream(bytes)) {
+      out.writeObject(person);
+    }
+    Person copy;
+    try (ObjectInputStream in =
+        new ObjectInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+      copy = (Person) in.readObject();
+    }
+    for (int i = -12; i < 72; i++) {
+      long time = START + i * HOUR;
+      assertEquals(person.vitalSigns.get(VitalSign.HEART_RATE).getValue(time),
+          copy.vitalSigns.get(VitalSign.HEART_RATE).getValue(time), 0.0);
+    }
+    // the copy reads the copied record, not the original one
+    copy.record.conditionEnd(START + HOUR, "91302008");
+    assertNotEquals(person.vitalSigns.get(VitalSign.HEART_RATE).getValue(START + 48 * HOUR),
+        copy.vitalSigns.get(VitalSign.HEART_RATE).getValue(START + 48 * HOUR), 1e-9);
   }
 
   @Test

@@ -13,6 +13,7 @@ import org.mitre.synthea.engine.Module;
 import org.mitre.synthea.export.rif.identifiers.Passport;
 import org.mitre.synthea.helpers.Attributes;
 import org.mitre.synthea.helpers.Attributes.Inventory;
+import org.mitre.synthea.helpers.ConditionVitalSignEffects;
 import org.mitre.synthea.helpers.Config;
 import org.mitre.synthea.helpers.ContinuousVitalSignGenerator;
 import org.mitre.synthea.helpers.PhysiologyValueGenerator;
@@ -736,6 +737,16 @@ public final class LifecycleModule extends Module {
   private static final Map<String, Object> RESPIRATION_RATE_CONTINUOUS =
       CONTINUOUS_HEART_AND_RESPIRATION_RATE
       ? ContinuousVitalSignGenerator.loadConfig("respiratory.respiration_rate.continuous") : null;
+  /** Continuous model only: conditions such as sepsis raise heart and respiration rate. */
+  private static final boolean CONDITION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE =
+      CONTINUOUS_HEART_AND_RESPIRATION_RATE && Config.getAsBoolean(
+          "lifecycle.vitals.heart_and_respiration_rate.condition_effects", true);
+  private static final ConditionVitalSignEffects HEART_RATE_CONDITION_EFFECTS =
+      CONDITION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE
+      ? ConditionVitalSignEffects.load("heart_rate") : null;
+  private static final ConditionVitalSignEffects RESPIRATION_RATE_CONDITION_EFFECTS =
+      CONDITION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE
+      ? ConditionVitalSignEffects.load("respiration_rate") : null;
 
   /**
    * Calculate this person's vital signs,
@@ -893,9 +904,9 @@ public final class LifecycleModule extends Module {
 
     if (CONTINUOUS_HEART_AND_RESPIRATION_RATE) {
       setContinuousVitalSign(person, VitalSign.HEART_RATE, HEART_RATE_NORMAL,
-          HEART_RATE_CONTINUOUS);
+          HEART_RATE_CONTINUOUS, HEART_RATE_CONDITION_EFFECTS);
       setContinuousVitalSign(person, VitalSign.RESPIRATION_RATE, RESPIRATION_RATE_NORMAL,
-          RESPIRATION_RATE_CONTINUOUS);
+          RESPIRATION_RATE_CONTINUOUS, RESPIRATION_RATE_CONDITION_EFFECTS);
       return;
     }
     long timestep = Long.parseLong(Config.get("generate.timestep"));
@@ -918,11 +929,11 @@ public final class LifecycleModule extends Module {
    * (VitalSign state) is left alone.
    */
   private static void setContinuousVitalSign(Person person, VitalSign vitalSign,
-      double[] range, Map<String, Object> config) {
+      double[] range, Map<String, Object> config, ConditionVitalSignEffects conditionEffects) {
     ValueGenerator current = person.vitalSigns.get(vitalSign);
     if (current == null || current instanceof TrendingValueGenerator) {
       person.setVitalSign(vitalSign, new ContinuousVitalSignGenerator(person,
-          vitalSign.ordinal() + 1, range[0], range[1], config));
+          vitalSign.ordinal() + 1, range[0], range[1], config, conditionEffects));
     }
   }
 

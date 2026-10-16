@@ -94,6 +94,105 @@ respiratory:
       fast_sd: 0.6
       fast_tau_hours: 4
       measurement_sd: 0.5
+# How conditions raise heart and respiration rate (ConditionVitalSignEffects). Used by the continuous
+# model when lifecycle.vitals.heart_and_respiration_rate.condition_effects = true.
+# Each effect adds its offset while one of its conditions (SNOMED codes, as recorded in the health
+# record) is active, from the time the condition is recorded. When the condition ends the offset decays
+# with time constant recovery_hours. An effect with max_days is acute: it also ends when the encounter
+# the condition was recorded in ends, and at the latest max_days after onset, because Synthea never
+# ends some acute conditions (e.g. sepsis.json leaves "Sepsis" active for life). Effects without
+# max_days are chronic. Several active effects combine sub-additively: largest first at full weight,
+# then each next one times combination_weight once more (0.5: 1, 1/2, 1/4, ...). Results are bounded
+# to "bounds" (the "continuous" values above stay inside "normal" without conditions).
+# Placeholder magnitudes chosen to be clinically plausible, not yet calibrated against observed data:
+# e.g. fever ~ +8-10 bpm per degree C (Liebermeister's rule); sepsis puts a typical patient above the
+# SIRS cut-offs (heart rate > 90, respiration rate > 20).
+vital_sign_condition_effects:
+  recovery_hours: 12
+  combination_weight: 0.5
+  bounds:
+    heart_rate: [30, 220]
+    respiration_rate: [6, 60]
+  effects:
+    septic_shock:
+      codes: ['76571007', '27942005'] # Septic shock; Shock
+      heart_rate: 35
+      respiration_rate: 9
+      max_days: 5
+    sepsis:
+      # Sepsis; Sepsis caused by virus; by Pseudomonas; by Staphylococcus aureus; Postoperative
+      # sepsis; Bacteremia
+      codes: ['91302008', '770349000', '448813005', '448417001', '698819004', '5758002']
+      heart_rate: 25
+      respiration_rate: 7
+      max_days: 14
+    ards:
+      codes: ['67782005'] # Acute respiratory distress syndrome
+      heart_rate: 20
+      respiration_rate: 14
+      max_days: 14
+    respiratory_failure:
+      codes: ['65710008', '271825005'] # Acute respiratory failure; Respiratory distress
+      heart_rate: 15
+      respiration_rate: 10
+      max_days: 10
+    pneumonia:
+      codes: ['233604007']
+      heart_rate: 15
+      respiration_rate: 6
+      max_days: 14
+    hypoxemia:
+      codes: ['389087006']
+      heart_rate: 10
+      respiration_rate: 5
+      max_days: 14
+    pulmonary_embolism:
+      codes: ['706870000'] # Acute pulmonary embolism
+      heart_rate: 20
+      respiration_rate: 6
+      max_days: 7
+    fever:
+      codes: ['386661006'] # Fever (finding), about 1.5 degrees C
+      heart_rate: 13
+      respiration_rate: 3
+      max_days: 7
+    perforated_appendix:
+      codes: ['47693006'] # Rupture of appendix
+      heart_rate: 18
+      respiration_rate: 4
+      max_days: 7
+    acute_abdominal_or_renal_infection:
+      codes: ['74400008', '65275009', '45816000'] # Appendicitis; Acute cholecystitis; Pyelonephritis
+      heart_rate: 12
+      respiration_rate: 3
+      max_days: 7
+    acute_heart_failure:
+      codes: ['84114007'] # Heart failure
+      heart_rate: 12
+      respiration_rate: 5
+      max_days: 14
+    myocardial_infarction:
+      # Myocardial infarction; Acute STEMI; Acute NSTEMI; Postoperative myocardial infarction
+      codes: ['22298006', '401303003', '401314000', '129574000']
+      heart_rate: 10
+      respiration_rate: 2
+      max_days: 5
+    hip_fracture:
+      codes: ['359817006'] # Closed fracture of hip
+      heart_rate: 8
+      respiration_rate: 2
+      max_days: 7
+    chronic_heart_failure:
+      codes: ['88805009'] # Chronic congestive heart failure
+      heart_rate: 5
+      respiration_rate: 2
+    atrial_fibrillation:
+      codes: ['49436004']
+      heart_rate: 12
+    anemia:
+      codes: ['271737000']
+      heart_rate: 8
+      respiration_rate: 1
 weightloss:
   # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4990387/
   adherence: 0.605

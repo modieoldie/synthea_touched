@@ -1,0 +1,86 @@
+{
+  "name": "Sepsis Hourly Vitals",
+  "remarks": [
+    "Test fixture for ConditionVitalSignEffects: sepsis diagnosed at an emergency encounter,",
+    "then 24 hourly heart rate readings and discharge, like sepsis.json (which never ends sepsis)."
+  ],
+  "states": {
+    "Initial": {
+      "type": "Initial",
+      "direct_transition": "Sepsis"
+    },
+    "Sepsis": {
+      "type": "ConditionOnset",
+      "target_encounter": "Sepsis_ED_Encounter",
+      "codes": [
+        {
+          "system": "SNOMED-CT",
+          "code": "91302008",
+          "display": "Sepsis (disorder)"
+        }
+      ],
+      "direct_transition": "Sepsis_ED_Encounter"
+    },
+    "Sepsis_ED_Encounter": {
+      "type": "Encounter",
+      "encounter_class": "emergency",
+      "reason": "Sepsis",
+      "codes": [
+        {
+          "system": "SNOMED-CT",
+          "code": "50849002",
+          "display": "Emergency room admission (procedure)"
+        }
+      ],
+      "direct_transition": "Heart_Rate"
+    },
+    "Heart_Rate": {
+      "type": "Observation",
+      "category": "vital-signs",
+      "vital_sign": "Heart Rate",
+      "unit": "/min",
+      "codes": [
+        {
+          "system": "LOINC",
+          "code": "8867-4",
+          "display": "Heart rate"
+        }
+      ],
+      "direct_transition": "Count_Reading"
+    },
+    "Count_Reading": {
+      "type": "Counter",
+      "attribute": "sepsis_hourly_vitals_readings",
+      "action": "increment",
+      "conditional_transition": [
+        {
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "sepsis_hourly_vitals_readings",
+            "operator": ">=",
+            "value": 24
+          },
+          "transition": "Discharge"
+        },
+        {
+          "transition": "Wait_Next_Reading"
+        }
+      ]
+    },
+    "Wait_Next_Reading": {
+      "type": "Delay",
+      "exact": {
+        "quantity": 1,
+        "unit": "hours"
+      },
+      "direct_transition": "Heart_Rate"
+    },
+    "Discharge": {
+      "type": "EncounterEnd",
+      "direct_transition": "Terminal"
+    },
+    "Terminal": {
+      "type": "Terminal"
+    }
+  }
+}

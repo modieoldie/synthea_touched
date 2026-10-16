@@ -13,7 +13,9 @@ import org.mitre.synthea.world.concepts.BiometricsConfig;
  * <p>The value is a per-person baseline plus a slow and a fast mean-reverting
  * (Ornstein-Uhlenbeck) deviation plus white measurement noise, reflected into [min, max].
  * Each deviation is an AR(1) process on its own fixed time grid and is linearly
- * interpolated between grid points.</p>
+ * interpolated between grid points. Optionally, ConditionVitalSignEffects then adds an offset
+ * for the person's active conditions (e.g. sepsis raises heart rate), which may take the value
+ * outside [min, max] up to the effects' own bounds.</p>
  *
  * <p>The random innovations are a hash of the person's seed, the vital sign and the grid
  * index, so getValue(time) depends only on the time asked for. It does not depend on
@@ -37,6 +39,8 @@ public class ContinuousVitalSignGenerator extends ValueGenerator {
   private final double measurementSd;
   private final Deviation slow;
   private final Deviation fast;
+  /** Offsets for the person's conditions; null for none. */
+  private final ConditionVitalSignEffects conditionEffects;
 
   /** One mean-reverting deviation with stationary SD sd and time constant tau. */
   private static class Deviation implements java.io.Serializable {
@@ -86,7 +90,25 @@ public class ContinuousVitalSignGenerator extends ValueGenerator {
    */
   public ContinuousVitalSignGenerator(Person person, long vitalSalt,
       double minimumValue, double maximumValue, Map<String, Object> config) {
+    this(person, vitalSalt, minimumValue, maximumValue, config, null);
+  }
+
+  /**
+   * Create a generator for one vital sign of one person that also responds to the person's
+   * conditions.
+   *
+   * @param person the person the values belong to
+   * @param vitalSalt distinguishes this vital sign's random path from the person's others
+   * @param minimumValue lower bound of the values without condition effects
+   * @param maximumValue upper bound of the values without condition effects
+   * @param config parameters, see the "continuous" entries in biometrics.yml
+   * @param conditionEffects offsets for the person's conditions, or null for none
+   */
+  public ContinuousVitalSignGenerator(Person person, long vitalSalt,
+      double minimumValue, double maximumValue, Map<String, Object> config,
+      ConditionVitalSignEffects conditionEffects) {
     super(person);
+    this.conditionEffects = conditionEffects;
     checkArgument(minimumValue <= maximumValue);
     this.seed = mix(person.getSeed() ^ mix(vitalSalt));
     this.minimumValue = minimumValue;
@@ -119,7 +141,8 @@ public class ContinuousVitalSignGenerator extends ValueGenerator {
   public double getValue(long time) {
     double value = baseline + slow.at(seed, time) + fast.at(seed, time)
         + measurementSd * gaussian(seed, 3, Math.floorDiv(time, NOISE_BUCKET_MS));
-    return reflect(value);
+    value = reflect(value);
+    return conditionEffects == null ? value : conditionEffects.apply(person, time, value);
   }
 
   /** Fold the value back into [min, max] at the bounds (clamping would pile values up there). */
@@ -171,6 +194,6 @@ public class ContinuousVitalSignGenerator extends ValueGenerator {
   @Override
   public String toString() {
     return "ContinuousVitalSignGenerator {baseline=" + baseline + ", minimumValue=" + minimumValue
-        + ", maximumValue=" + maximumValue + "}";
+        + ", maximumValue=" + maximumValue + ", conditionEffects=" + conditionEffects + "}";
   }
 }
