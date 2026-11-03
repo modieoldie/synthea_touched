@@ -22,6 +22,7 @@ import org.mitre.synthea.helpers.SimpleCSV;
 import org.mitre.synthea.helpers.TrendingValueGenerator;
 import org.mitre.synthea.helpers.Utilities;
 import org.mitre.synthea.helpers.ValueGenerator;
+import org.mitre.synthea.helpers.VitalSignEffects;
 import org.mitre.synthea.modules.BloodPressureValueGenerator.SysDias;
 import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.agents.behaviors.planeligibility.QualifyingConditionCodesEligibility;
@@ -741,12 +742,27 @@ public final class LifecycleModule extends Module {
   private static final boolean CONDITION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE =
       CONTINUOUS_HEART_AND_RESPIRATION_RATE && Config.getAsBoolean(
           "lifecycle.vitals.heart_and_respiration_rate.condition_effects", true);
-  private static final ConditionVitalSignEffects HEART_RATE_CONDITION_EFFECTS =
-      CONDITION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE
-      ? ConditionVitalSignEffects.load("heart_rate") : null;
-  private static final ConditionVitalSignEffects RESPIRATION_RATE_CONDITION_EFFECTS =
-      CONDITION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE
-      ? ConditionVitalSignEffects.load("respiration_rate") : null;
+  /** Condition effects only: acute effects resolve during the condition, faster once treated. */
+  private static final boolean CONDITION_COURSE = Config.getAsBoolean(
+      "lifecycle.vitals.heart_and_respiration_rate.condition_course", true);
+  /** Condition effects only: each episode draws a severity factor. */
+  private static final boolean CONDITION_SEVERITY = Config.getAsBoolean(
+      "lifecycle.vitals.heart_and_respiration_rate.condition_severity", true);
+  /** Continuous model only: medications such as beta blockers lower heart rate. */
+  private static final boolean MEDICATION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE =
+      CONTINUOUS_HEART_AND_RESPIRATION_RATE && Config.getAsBoolean(
+          "lifecycle.vitals.heart_and_respiration_rate.medication_effects", true);
+  private static final VitalSignEffects HEART_RATE_EFFECTS =
+      CONTINUOUS_HEART_AND_RESPIRATION_RATE
+      ? VitalSignEffects.load("heart_rate", CONDITION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE,
+          CONDITION_COURSE, CONDITION_SEVERITY, MEDICATION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE)
+      : null;
+  private static final VitalSignEffects RESPIRATION_RATE_EFFECTS =
+      CONTINUOUS_HEART_AND_RESPIRATION_RATE
+      ? VitalSignEffects.load("respiration_rate",
+          CONDITION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE, CONDITION_COURSE, CONDITION_SEVERITY,
+          MEDICATION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE)
+      : null;
 
   /**
    * Calculate this person's vital signs,
@@ -904,9 +920,9 @@ public final class LifecycleModule extends Module {
 
     if (CONTINUOUS_HEART_AND_RESPIRATION_RATE) {
       setContinuousVitalSign(person, VitalSign.HEART_RATE, HEART_RATE_NORMAL,
-          HEART_RATE_CONTINUOUS, HEART_RATE_CONDITION_EFFECTS);
+          HEART_RATE_CONTINUOUS, HEART_RATE_EFFECTS);
       setContinuousVitalSign(person, VitalSign.RESPIRATION_RATE, RESPIRATION_RATE_NORMAL,
-          RESPIRATION_RATE_CONTINUOUS, RESPIRATION_RATE_CONDITION_EFFECTS);
+          RESPIRATION_RATE_CONTINUOUS, RESPIRATION_RATE_EFFECTS);
       return;
     }
     long timestep = Long.parseLong(Config.get("generate.timestep"));
@@ -924,16 +940,20 @@ public final class LifecycleModule extends Module {
   }
 
   /**
-   * Give the person a ContinuousVitalSignGenerator for this vital sign, once. It replaces
-   * only a missing or lifecycle trending generator, so a value a module set explicitly
-   * (VitalSign state) is left alone.
+   * Give the person a ContinuousVitalSignGenerator for this vital sign with the current
+   * parameters. It replaces a missing or lifecycle trending generator, so a value a module set
+   * explicitly (VitalSign state) is left alone, and any ContinuousVitalSignGenerator: one loaded
+   * from a population snapshot may have been built with older parameters. The generator holds
+   * no state that changes over time, so a new one gives the same values as the old one would
+   * with the same parameters.
    */
-  private static void setContinuousVitalSign(Person person, VitalSign vitalSign,
-      double[] range, Map<String, Object> config, ConditionVitalSignEffects conditionEffects) {
+  static void setContinuousVitalSign(Person person, VitalSign vitalSign,
+      double[] range, Map<String, Object> config, VitalSignEffects effects) {
     ValueGenerator current = person.vitalSigns.get(vitalSign);
-    if (current == null || current instanceof TrendingValueGenerator) {
+    if (current == null || current instanceof TrendingValueGenerator
+        || current instanceof ContinuousVitalSignGenerator) {
       person.setVitalSign(vitalSign, new ContinuousVitalSignGenerator(person,
-          vitalSign.ordinal() + 1, range[0], range[1], config, conditionEffects));
+          vitalSign.ordinal() + 1, range[0], range[1], config, effects));
     }
   }
 

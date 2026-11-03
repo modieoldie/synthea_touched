@@ -61,7 +61,7 @@ public class ConditionVitalSignEffectsModuleTest {
   public void heartRateRecordedDuringSepsisCarriesTheOffset() throws Exception {
     Map<String, Object> config =
         ContinuousVitalSignGenerator.loadConfig("cardiovascular.heart_rate.continuous");
-    ConditionVitalSignEffects effects = ConditionVitalSignEffects.load("heart_rate");
+    VitalSignEffects effects = VitalSignEffects.load("heart_rate", true, true, true, true);
     ContinuousVitalSignGenerator healthy =
         new ContinuousVitalSignGenerator(person, 1, 60, 100, config);
     person.setVitalSign(VitalSign.HEART_RATE,
@@ -80,18 +80,22 @@ public class ConditionVitalSignEffectsModuleTest {
     Entry sepsis = stay.conditions.get(0);
     assertEquals(SEPSIS, sepsis.type);
     assertEquals(0, sepsis.stop);  // never ended, as in sepsis.json
-    double offset = effects.offset(person, sepsis.start);
-    assertTrue(offset > 0);
+    ConditionVitalSignEffects conditions = effects.getConditions();
+    double atOnset = conditions.offset(person, sepsis.start);
+    assertTrue(atOnset > 0);
 
     assertEquals(24, stay.observations.size());
-    double meanShift = 0;
+    double previous = Double.POSITIVE_INFINITY;
     for (Observation reading : stay.observations) {
       double recorded = ((Number) reading.value).doubleValue();
+      double offset = conditions.offset(person, reading.start);
       double expected = healthy.getValue(reading.start) + offset;
       assertEquals("reading at " + reading.start, expected, recorded, 0.5);  // rounded to 1/min
-      meanShift += (recorded - healthy.getValue(reading.start)) / stay.observations.size();
+      // no antibiotic recorded: the effect resolves, slowly
+      assertTrue(offset <= previous && offset > 0.75 * atOnset);
+      previous = offset;
     }
-    assertEquals(offset, meanShift, 0.5);
+    assertTrue(previous < atOnset);
 
     // sepsis ends with the stay: three days after discharge the heart rate is back to healthy
     long later = stay.stop + 72 * HOUR;

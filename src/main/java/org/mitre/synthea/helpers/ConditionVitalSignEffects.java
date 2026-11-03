@@ -5,13 +5,15 @@ import static com.google.common.base.Preconditions.checkArgument;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.concepts.BiometricsConfig;
-import org.mitre.synthea.world.concepts.HealthRecord;
 import org.mitre.synthea.world.concepts.HealthRecord.Encounter;
 import org.mitre.synthea.world.concepts.HealthRecord.Entry;
 
@@ -24,22 +26,37 @@ import org.mitre.synthea.world.concepts.HealthRecord.Entry;
  * max_days) also ends when the encounter its condition was recorded in ends, and at the latest
  * max_days after onset, because Synthea leaves some acute conditions, such as sepsis, active
  * forever. Several active effects combine sub-additively: sorted by size, the largest counts
- * fully, the next times combination_weight, the next times its square, and so on. The result
- * is bounded to the vital sign's bounds.</p>
+ * fully, the next times combination_weight, the next times its square, and so on.</p>
+ *
+ * <p>Course (optional): an acute effect with resolution_hours is strongest at onset and falls
+ * towards residual (a share of its offset) with that time constant once treated. With
+ * treated_by, treatment starts with the first medication of one of those drug classes recorded
+ * from treatment_window_hours before onset; until then the effect falls untreated_factor times
+ * slower. Without treated_by it falls from onset. The course is timed from onset and treatment,
+ * never from discharge, so values during a stay do not reveal when the stay will end.</p>
+ *
+ * <p>Severity (optional): each episode's offset is multiplied by a log-normal factor with mean 1
+ * and log-SD severity_sd, a pure function of the person's seed, the effect and the onset time,
+ * so heart and respiration rate share it.</p>
  *
  * <p>The offset at a time depends only on the person's health record up to that time, so a
  * value does not change with when or how often it is asked for. Parameters are in
  * biometrics.yml (vital_sign_condition_effects).</p>
  */
 public class ConditionVitalSignEffects implements Serializable {
+  /** Unchanged since the first version, so snapshots holding older effects still load. */
   private static final long serialVersionUID = 1L;
   private static final double MS_PER_HOUR = 3_600_000.0;
   private static final double MS_PER_DAY = 24 * MS_PER_HOUR;
+  /** Distinguishes severity draws from the person's other stateless random numbers. */
+  private static final long SEVERITY_SALT = 0x73657665L;
 
   private final double recoveryMs;
   private final double combinationWeight;
-  private final double minimumValue;
-  private final double maximumValue;
+  /** Log-SD of each episode's severity; 0 for none. */
+  private final double severitySd;
+  private final double untreatedFactor;
+  private final double treatmentWindowMs;
   /** Condition code to the index of its effect. */
   private final Map<String, Integer> effectOfCode;
   private final String[] names;
@@ -47,54 +64,91 @@ public class ConditionVitalSignEffects implements Serializable {
   private final double[] magnitudes;
   /** Longest an acute effect lasts after onset; infinite for chronic effects. */
   private final double[] maxDurationMs;
+  /** Time constant of an acute effect's resolution; 0 for a flat effect. */
+  private final double[] resolutionMs;
+  /** Share of an acute effect left once resolved. */
+  private final double[] residuals;
+  /** Drug codes that treat each effect; null when its course starts at onset. */
+  private final Set<String>[] treatmentCodes;
+  private final long[] severitySalts;
+
+  /**
+   * Load the effects on one vital sign from biometrics.yml, with course and severity.
+   *
+   * @param vitalSign the vital sign's key in the effects table, e.g. "heart_rate"
+   * @return the effects; effects that do not list this vital sign are left out
+   */
+  public static ConditionVitalSignEffects load(String vitalSign) {
+    return load(vitalSign, true, true);
+  }
 
   /**
    * Load the effects on one vital sign from biometrics.yml.
    *
    * @param vitalSign the vital sign's key in the effects table, e.g. "heart_rate"
+   * @param course whether acute effects resolve during the condition (resolution_hours)
+   * @param severity whether each episode draws a severity factor (severity_sd)
    * @return the effects; effects that do not list this vital sign are left out
    */
   @SuppressWarnings("unchecked")
-  public static ConditionVitalSignEffects load(String vitalSign) {
+  public static ConditionVitalSignEffects load(String vitalSign, boolean course,
+      boolean severity) {
     Object config = BiometricsConfig.get("vital_sign_condition_effects");
     if (!(config instanceof Map)) {
       throw new IllegalStateException(
           "biometrics.yml has no parameter map at vital_sign_condition_effects");
     }
-    return new ConditionVitalSignEffects((Map<String, Object>) config, vitalSign);
+    return new ConditionVitalSignEffects((Map<String, Object>) config, vitalSign, course,
+        severity, MedicationVitalSignEffects.drugClasses());
+  }
+
+  /**
+   * Create the effects on one vital sign, with course and severity if the parameters give them.
+   *
+   * @param config parameters in the layout of biometrics.yml vital_sign_condition_effects
+   * @param vitalSign the vital sign's key in each effect, e.g. "heart_rate"
+   */
+  public ConditionVitalSignEffects(Map<String, Object> config, String vitalSign) {
+    this(config, vitalSign, true, true, MedicationVitalSignEffects.drugClasses());
   }
 
   /**
    * Create the effects on one vital sign.
    *
    * @param config parameters in the layout of biometrics.yml vital_sign_condition_effects
-   * @param vitalSign the vital sign's key in the bounds and in each effect, e.g. "heart_rate"
+   * @param vitalSign the vital sign's key in each effect, e.g. "heart_rate"
+   * @param course whether acute effects resolve during the condition (resolution_hours)
+   * @param severity whether each episode draws a severity factor (severity_sd)
+   * @param drugClasses drug code to class name, for treated_by
    */
   @SuppressWarnings("unchecked")
-  public ConditionVitalSignEffects(Map<String, Object> config, String vitalSign) {
+  public ConditionVitalSignEffects(Map<String, Object> config, String vitalSign, boolean course,
+      boolean severity, Map<String, String> drugClasses) {
     double recoveryHours = number(config, "recovery_hours");
     checkArgument(recoveryHours >= 0, "recovery_hours must not be negative");
     this.recoveryMs = recoveryHours * MS_PER_HOUR;
     this.combinationWeight = number(config, "combination_weight");
     checkArgument(combinationWeight >= 0 && combinationWeight <= 1,
         "combination_weight must be in [0, 1]");
-
-    Map<String, Object> bounds = (Map<String, Object>) config.get("bounds");
-    checkArgument(bounds != null && bounds.get(vitalSign) instanceof List,
-        "missing bounds for " + vitalSign);
-    List<Object> range = (List<Object>) bounds.get(vitalSign);
-    checkArgument(range.size() == 2, "bounds for " + vitalSign + " must be [min, max]");
-    this.minimumValue = ((Number) range.get(0)).doubleValue();
-    this.maximumValue = ((Number) range.get(1)).doubleValue();
-    checkArgument(minimumValue <= maximumValue, "bounds for " + vitalSign + " are reversed");
+    double sd = config.containsKey("severity_sd") ? number(config, "severity_sd") : 0;
+    checkArgument(sd >= 0, "severity_sd must not be negative");
+    this.severitySd = severity ? sd : 0;
+    this.untreatedFactor = config.containsKey("untreated_factor")
+        ? number(config, "untreated_factor") : 1;
+    checkArgument(untreatedFactor >= 1, "untreated_factor must be at least 1");
+    double windowHours = config.containsKey("treatment_window_hours")
+        ? number(config, "treatment_window_hours") : 0;
+    checkArgument(windowHours >= 0, "treatment_window_hours must not be negative");
+    this.treatmentWindowMs = windowHours * MS_PER_HOUR;
 
     Map<String, Object> effects = (Map<String, Object>) config.get("effects");
     checkArgument(effects != null, "missing effects");
     this.effectOfCode = new HashMap<>();
     List<String> names = new ArrayList<>();
-    List<Double> magnitudes = new ArrayList<>();
-    List<Double> maxDurations = new ArrayList<>();
+    List<double[]> rows = new ArrayList<>();
+    List<Set<String>> treatments = new ArrayList<>();
     for (Map.Entry<String, Object> e : effects.entrySet()) {
+      String name = e.getKey();
       Map<String, Object> effect = (Map<String, Object>) e.getValue();
       Object magnitude = effect.get(vitalSign);
       if (magnitude == null || ((Number) magnitude).doubleValue() == 0) {
@@ -103,37 +157,92 @@ public class ConditionVitalSignEffects implements Serializable {
       double maxDuration = Double.POSITIVE_INFINITY;
       if (effect.containsKey("max_days")) {
         double maxDays = number(effect, "max_days");
-        checkArgument(maxDays > 0, "max_days of " + e.getKey() + " must be positive");
+        checkArgument(maxDays > 0, "max_days of " + name + " must be positive");
         maxDuration = maxDays * MS_PER_DAY;
+      }
+      double resolutionHours = resolutionHours(effect, name, vitalSign);
+      checkArgument(resolutionHours == 0 || maxDuration < Double.POSITIVE_INFINITY,
+          "resolution_hours of " + name + " needs max_days: only acute effects resolve");
+      double residual = effect.containsKey("residual") ? number(effect, "residual") : 0;
+      checkArgument(residual >= 0 && residual < 1, "residual of " + name + " must be in [0, 1)");
+      Set<String> treatment = null;
+      if (effect.containsKey("treated_by")) {
+        checkArgument(resolutionHours > 0, "treated_by of " + name + " needs resolution_hours");
+        checkArgument(effect.get("treated_by") instanceof List,
+            "treated_by of " + name + " must be a list of drug classes");
+        treatment = new HashSet<>();
+        for (Object drugClass : (List<Object>) effect.get("treated_by")) {
+          checkArgument(drugClasses.containsValue(String.valueOf(drugClass)),
+              "treated_by of " + name + ": no codes of drug class " + drugClass
+              + " in vital_sign_drug_classes.csv");
+          for (Map.Entry<String, String> drug : drugClasses.entrySet()) {
+            if (drug.getValue().equals(String.valueOf(drugClass))) {
+              treatment.add(drug.getKey());
+            }
+          }
+        }
       }
       Object codes = effect.get("codes");
       checkArgument(codes instanceof List && !((List<Object>) codes).isEmpty(),
-          "effect " + e.getKey() + " lists no codes");
+          "effect " + name + " lists no codes");
       int index = names.size();
       for (Object code : (List<Object>) codes) {
         Integer previous = effectOfCode.put(String.valueOf(code), index);
         checkArgument(previous == null || previous == index,
             "code " + code + " is in more than one effect");
       }
-      names.add(e.getKey());
-      magnitudes.add(((Number) magnitude).doubleValue());
-      maxDurations.add(maxDuration);
+      names.add(name);
+      rows.add(new double[] {((Number) magnitude).doubleValue(), maxDuration,
+          course ? resolutionHours * MS_PER_HOUR : 0, course ? residual : 0});
+      treatments.add(course ? treatment : null);
     }
+    int n = names.size();
     this.names = names.toArray(new String[0]);
-    this.magnitudes = magnitudes.stream().mapToDouble(Double::doubleValue).toArray();
-    this.maxDurationMs = maxDurations.stream().mapToDouble(Double::doubleValue).toArray();
+    this.magnitudes = new double[n];
+    this.maxDurationMs = new double[n];
+    this.resolutionMs = new double[n];
+    this.residuals = new double[n];
+    this.treatmentCodes = treatments.toArray(new Set[0]);
+    this.severitySalts = new long[n];
+    for (int i = 0; i < n; i++) {
+      magnitudes[i] = rows.get(i)[0];
+      maxDurationMs[i] = rows.get(i)[1];
+      resolutionMs[i] = rows.get(i)[2];
+      residuals[i] = rows.get(i)[3];
+      severitySalts[i] = this.names[i].hashCode();
+    }
   }
 
-  /**
-   * Add the offset of the person's conditions to a value and bound the result.
-   *
-   * @param person the person
-   * @param time the time of the value
-   * @param value the vital sign without condition effects
-   * @return the vital sign with condition effects
-   */
-  public double apply(Person person, long time, double value) {
-    return Math.min(maximumValue, Math.max(minimumValue, value + offset(person, time)));
+  /** resolution_hours of an effect for one vital sign: a number, or a map by vital sign. */
+  @SuppressWarnings("unchecked")
+  private static double resolutionHours(Map<String, Object> effect, String name,
+      String vitalSign) {
+    Object value = effect.get("resolution_hours");
+    if (value instanceof Map) {
+      value = ((Map<String, Object>) value).get(vitalSign);
+    }
+    if (value == null) {
+      return 0;
+    }
+    checkArgument(value instanceof Number && ((Number) value).doubleValue() > 0,
+        "resolution_hours of " + name + " must be positive");
+    return ((Number) value).doubleValue();
+  }
+
+  /** Codes of the conditions with an effect on this vital sign. */
+  Set<String> conditionCodes() {
+    return effectOfCode.keySet();
+  }
+
+  /** Codes of the drugs that treat these effects. */
+  Set<String> treatmentCodes() {
+    Set<String> codes = new HashSet<>();
+    for (Set<String> treatment : treatmentCodes) {
+      if (treatment != null) {
+        codes.addAll(treatment);
+      }
+    }
+    return codes;
   }
 
   /**
@@ -144,30 +253,36 @@ public class ConditionVitalSignEffects implements Serializable {
    * @return the offset
    */
   public double offset(Person person, long time) {
-    double[] activation = null;
-    for (HealthRecord record : records(person)) {
-      for (Encounter encounter : record.encounters) {
-        for (Entry condition : encounter.conditions) {
-          Integer effect = effectOfCode.get(condition.type);
-          if (effect == null || condition.start > time) {
-            continue;
-          }
-          double a = activation(effect, encounter, condition, time);
-          if (a > 0) {
-            if (activation == null) {
-              activation = new double[magnitudes.length];
-            }
-            activation[effect] = Math.max(activation[effect], a);
-          }
+    VitalSignRecordIndex index = new VitalSignRecordIndex(conditionCodes(), treatmentCodes());
+    index.update(person);
+    return offset(person, index, time);
+  }
+
+  double offset(Person person, VitalSignRecordIndex index, long time) {
+    double[] strength = null;
+    long seed = severitySd > 0
+        ? StatelessRandom.mix(person.getSeed() ^ StatelessRandom.mix(SEVERITY_SALT)) : 0;
+    for (VitalSignRecordIndex.Item item : index.conditions()) {
+      Entry condition = item.entry;
+      Integer effect = effectOfCode.get(condition.type);
+      if (effect == null || condition.start > time) {
+        continue;
+      }
+      double a = activation(effect, item.encounter, condition, time, index);
+      if (a > 0) {
+        if (strength == null) {
+          strength = new double[magnitudes.length];
         }
+        strength[effect] = Math.max(strength[effect],
+            a * severity(seed, effect, condition.start));
       }
     }
-    if (activation == null) {
+    if (strength == null) {
       return 0;
     }
     double[] contributions = new double[magnitudes.length];
     for (int i = 0; i < magnitudes.length; i++) {
-      contributions[i] = magnitudes[i] * activation[i];
+      contributions[i] = magnitudes[i] * strength[i];
     }
     // largest effect first, whatever its sign
     double[] sorted = Arrays.stream(contributions).boxed()
@@ -182,8 +297,9 @@ public class ConditionVitalSignEffects implements Serializable {
     return total;
   }
 
-  /** 1 while the condition is active, then decaying towards 0. */
-  private double activation(int effect, Encounter encounter, Entry condition, long time) {
+  /** The course while the condition is active, then decaying towards 0 after it ends. */
+  private double activation(int effect, Encounter encounter, Entry condition, long time,
+      VitalSignRecordIndex index) {
     // 0 means "not ended"; times before 1970 are negative
     double end = condition.stop != 0L ? condition.stop : Double.POSITIVE_INFINITY;
     if (maxDurationMs[effect] < Double.POSITIVE_INFINITY) {
@@ -195,29 +311,72 @@ public class ConditionVitalSignEffects implements Serializable {
     }
     end = Math.max(end, condition.start);
     if (time < end) {
+      return level(effect, condition.start, time, index);
+    }
+    if (recoveryMs == 0) {
+      return 0;
+    }
+    return level(effect, condition.start, end, index) * Math.exp(-(time - end) / recoveryMs);
+  }
+
+  /** Share of the effect left at a time during the condition: 1 at onset, then resolving. */
+  private double level(int effect, long onset, double time, VitalSignRecordIndex index) {
+    double tau = resolutionMs[effect];
+    if (tau == 0) {
       return 1;
     }
-    return recoveryMs > 0 ? Math.exp(-(time - end) / recoveryMs) : 0;
+    double treated = treatmentCodes[effect] == null ? onset
+        : treatmentStart(effect, onset, time, index);
+    double remaining;
+    if (treated > time) {
+      remaining = Math.exp(-(time - onset) / (tau * untreatedFactor));
+    } else {
+      remaining = Math.exp(-(treated - onset) / (tau * untreatedFactor) - (time - treated) / tau);
+    }
+    return residuals[effect] + (1 - residuals[effect]) * remaining;
   }
 
-  /** The person's distinct health records (more than one with split records or loss of care). */
-  private static List<HealthRecord> records(Person person) {
-    List<HealthRecord> records = new ArrayList<>(3);
-    addRecord(records, person.defaultRecord);
-    addRecord(records, person.record);
-    addRecord(records, person.lossOfCareRecord);
-    if (person.records != null) {
-      for (HealthRecord record : person.records.values()) {
-        addRecord(records, record);
+  /** When treatment of an episode began, no earlier than onset; infinite if not yet. */
+  private double treatmentStart(int effect, long onset, double time,
+      VitalSignRecordIndex index) {
+    double first = Double.POSITIVE_INFINITY;
+    for (VitalSignRecordIndex.Item item : index.medications()) {
+      long start = item.entry.start;
+      if (start <= time && start >= onset - treatmentWindowMs && start < first
+          && treatmentCodes[effect].contains(item.entry.type)) {
+        first = start;
       }
     }
-    return records;
+    return Math.max(first, onset);
   }
 
-  private static void addRecord(List<HealthRecord> records, HealthRecord record) {
-    if (record != null && !records.contains(record)) {
-      records.add(record);
+  /** The episode's severity factor (1 without severity). */
+  private double severity(long seed, int effect, long onset) {
+    if (severitySd == 0) {
+      return 1;
     }
+    double z = StatelessRandom.gaussian(seed, severitySalts[effect], onset);
+    return Math.exp(severitySd * z - severitySd * severitySd / 2);
+  }
+
+  /**
+   * The severity factor of one episode of an effect (1 without severity).
+   *
+   * @param person the person
+   * @param effect the effect's name in biometrics.yml
+   * @param onset the start of the episode's condition
+   * @return the factor on the effect's offset
+   */
+  public double severity(Person person, String effect, long onset) {
+    int index = Arrays.asList(names).indexOf(effect);
+    checkArgument(index >= 0, "no effect " + effect + " on this vital sign");
+    long seed = StatelessRandom.mix(person.getSeed() ^ StatelessRandom.mix(SEVERITY_SALT));
+    return severity(seed, index, onset);
+  }
+
+  /** The effects' names, for tests and diagnostics. */
+  List<String> names() {
+    return Collections.unmodifiableList(Arrays.asList(names));
   }
 
   private static double number(Map<String, Object> config, String key) {
@@ -228,19 +387,9 @@ public class ConditionVitalSignEffects implements Serializable {
     return ((Number) value).doubleValue();
   }
 
-  /** Lower bound of the vital sign with condition effects. */
-  public double getMinimumValue() {
-    return minimumValue;
-  }
-
-  /** Upper bound of the vital sign with condition effects. */
-  public double getMaximumValue() {
-    return maximumValue;
-  }
-
   @Override
   public String toString() {
     return "ConditionVitalSignEffects {effects=" + Arrays.toString(names) + ", magnitudes="
-        + Arrays.toString(magnitudes) + "}";
+        + Arrays.toString(magnitudes) + ", severitySd=" + severitySd + "}";
   }
 }

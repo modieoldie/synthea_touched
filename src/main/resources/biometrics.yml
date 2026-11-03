@@ -94,6 +94,11 @@ respiratory:
       fast_sd: 0.6
       fast_tau_hours: 4
       measurement_sd: 0.5
+# Bounds of heart and respiration rate once conditions and medications act on them (the "continuous"
+# values above stay inside "normal" without them).
+vital_sign_effect_bounds:
+  heart_rate: [30, 220]
+  respiration_rate: [6, 60]
 # How conditions raise heart and respiration rate (ConditionVitalSignEffects). Used by the continuous
 # model when lifecycle.vitals.heart_and_respiration_rate.condition_effects = true.
 # Each effect adds its offset while one of its conditions (SNOMED codes, as recorded in the health
@@ -102,23 +107,34 @@ respiratory:
 # the condition was recorded in ends, and at the latest max_days after onset, because Synthea never
 # ends some acute conditions (e.g. sepsis.json leaves "Sepsis" active for life). Effects without
 # max_days are chronic. Several active effects combine sub-additively: largest first at full weight,
-# then each next one times combination_weight once more (0.5: 1, 1/2, 1/4, ...). Results are bounded
-# to "bounds" (the "continuous" values above stay inside "normal" without conditions).
-# Placeholder magnitudes chosen to be clinically plausible, not yet calibrated against observed data:
-# e.g. fever ~ +8-10 bpm per degree C (Liebermeister's rule); sepsis puts a typical patient above the
-# SIRS cut-offs (heart rate > 90, respiration rate > 20).
+# then each next one times combination_weight once more (0.5: 1, 1/2, 1/4, ...).
+# Course (lifecycle.vitals.heart_and_respiration_rate.condition_course): an acute effect with
+# resolution_hours (a number, or one per vital sign) is strongest at onset and falls towards residual (a
+# share of its offset) with that time constant once treated. With treated_by (drug classes of
+# vital_sign_drug_classes.csv), treatment starts with the first such medication recorded from
+# treatment_window_hours before onset, and until then the effect falls untreated_factor times slower;
+# without treated_by it falls from onset. The course never depends on when the encounter ends.
+# Severity (lifecycle.vitals.heart_and_respiration_rate.condition_severity): each episode's offsets are
+# multiplied by a log-normal factor with mean 1 and log-SD severity_sd, drawn per person, effect and
+# onset and shared by heart and respiration rate.
+# Magnitudes and courses are clinically plausible placeholders unless a source is given: e.g. fever
+# ~ +8-10 bpm per degree C (Liebermeister's rule); sepsis puts a typical patient above the SIRS cut-offs
+# (heart rate > 90, respiration rate > 20).
 vital_sign_condition_effects:
   recovery_hours: 12
   combination_weight: 0.5
-  bounds:
-    heart_rate: [30, 220]
-    respiration_rate: [6, 60]
+  severity_sd: 0.4
+  untreated_factor: 3
+  treatment_window_hours: 24
   effects:
     septic_shock:
       codes: ['76571007', '27942005'] # Septic shock; Shock
       heart_rate: 35
       respiration_rate: 9
       max_days: 5
+      resolution_hours: 24
+      residual: 0.1
+      treated_by: [antibiotic]
     sepsis:
       # Sepsis; Sepsis caused by virus; by Pseudomonas; by Staphylococcus aureus; Postoperative
       # sepsis; Bacteremia
@@ -126,62 +142,96 @@ vital_sign_condition_effects:
       heart_rate: 25
       respiration_rate: 7
       max_days: 14
+      resolution_hours: 48
+      residual: 0.1
+      treated_by: [antibiotic]
     ards:
       codes: ['67782005'] # Acute respiratory distress syndrome
       heart_rate: 20
       respiration_rate: 14
       max_days: 14
+      resolution_hours: 96
+      residual: 0.2
     respiratory_failure:
       codes: ['65710008', '271825005'] # Acute respiratory failure; Respiratory distress
       heart_rate: 15
       respiration_rate: 10
       max_days: 10
+      resolution_hours: 48
+      residual: 0.1
     pneumonia:
+      # Calibrated to community-acquired pneumonia admissions (Halm et al., JAMA 1998): with these
+      # values an average admission is at about heart rate 100 and respiration rate 26, and patients
+      # above heart rate 100 / respiration rate 24 at admission reach a day whose worst reading is at
+      # or below it after a median of 2 / 3 days on antibiotics (VitalSignEffectsRealismTest).
       codes: ['233604007']
-      heart_rate: 15
-      respiration_rate: 6
+      heart_rate: 20
+      respiration_rate: 12
       max_days: 14
+      resolution_hours: {heart_rate: 36, respiration_rate: 144}
+      residual: 0.1
+      treated_by: [antibiotic]
     hypoxemia:
       codes: ['389087006']
       heart_rate: 10
       respiration_rate: 5
       max_days: 14
+      resolution_hours: 48
+      residual: 0.1
     pulmonary_embolism:
       codes: ['706870000'] # Acute pulmonary embolism
       heart_rate: 20
       respiration_rate: 6
       max_days: 7
+      resolution_hours: 48
+      residual: 0.1
+      treated_by: [anticoagulant]
     fever:
       codes: ['386661006'] # Fever (finding), about 1.5 degrees C
       heart_rate: 13
       respiration_rate: 3
       max_days: 7
+      resolution_hours: 36
+      treated_by: [antipyretic]
     perforated_appendix:
       codes: ['47693006'] # Rupture of appendix
       heart_rate: 18
       respiration_rate: 4
       max_days: 7
+      resolution_hours: 48
+      residual: 0.1
+      treated_by: [antibiotic]
     acute_abdominal_or_renal_infection:
       codes: ['74400008', '65275009', '45816000'] # Appendicitis; Acute cholecystitis; Pyelonephritis
       heart_rate: 12
       respiration_rate: 3
       max_days: 7
+      resolution_hours: 36
+      residual: 0.1
+      treated_by: [antibiotic]
     acute_heart_failure:
       codes: ['84114007'] # Heart failure
       heart_rate: 12
       respiration_rate: 5
       max_days: 14
+      resolution_hours: 48
+      residual: 0.2
+      treated_by: [loop_diuretic]
     myocardial_infarction:
       # Myocardial infarction; Acute STEMI; Acute NSTEMI; Postoperative myocardial infarction
       codes: ['22298006', '401303003', '401314000', '129574000']
       heart_rate: 10
       respiration_rate: 2
       max_days: 5
+      resolution_hours: 36
+      residual: 0.1
     hip_fracture:
       codes: ['359817006'] # Closed fracture of hip
       heart_rate: 8
       respiration_rate: 2
       max_days: 7
+      resolution_hours: 72
+      residual: 0.2
     chronic_heart_failure:
       codes: ['88805009'] # Chronic congestive heart failure
       heart_rate: 5
@@ -193,6 +243,49 @@ vital_sign_condition_effects:
       codes: ['271737000']
       heart_rate: 8
       respiration_rate: 1
+# How medications change heart and respiration rate (MedicationVitalSignEffects). Used by the continuous
+# model when lifecycle.vitals.heart_and_respiration_rate.medication_effects = true.
+# vital_sign_drug_classes.csv assigns each drug code Synthea can prescribe to a class. For each vital sign
+# a class lists a shift of the resting value and a blunting: the share of the rise from conditions it
+# removes. A prescription acts from its start until it stops, then wears off with time constant
+# washout_hours; a one-off dose (an administration) acts for administration_hours, or not at all without
+# it. A person takes a prescribed class with probability adherence and responds by a factor drawn
+# uniformly from response; both are fixed per person and class. Classes combine like condition effects:
+# shifts sub-additively (combination_weight), bluntings multiplicatively.
+# Sources: beta blockers lower resting heart rate by roughly 10-15 bpm (e.g. heart failure trials,
+# McAlister et al., Ann Intern Med 2009); ivabradine by about 10 bpm (SHIFT, Swedberg et al., Lancet 2010);
+# adherence to cardiovascular drugs is about 60% (Naderi et al., Am J Med 2012). Other values, the
+# bluntings and the ophthalmic dose, are placeholders. Classes without a heart_rate or respiration_rate
+# entry (antibiotic, ...) only time the course of conditions (treated_by).
+vital_sign_medication_effects:
+  combination_weight: 0.5
+  classes:
+    beta_blocker:
+      heart_rate: {shift: -12, blunting: 0.3}
+      adherence: 0.6
+      response: [0.5, 1.5]
+      washout_hours: 24
+      administration_hours: 6
+    ophthalmic_beta_blocker: # timolol eye drops, absorbed in small amounts
+      heart_rate: {shift: -3}
+      adherence: 0.6
+      response: [0.5, 1.5]
+      washout_hours: 24
+    non_dhp_calcium_channel_blocker: # verapamil, diltiazem
+      heart_rate: {shift: -7, blunting: 0.15}
+      adherence: 0.6
+      response: [0.5, 1.5]
+      washout_hours: 24
+    digoxin:
+      heart_rate: {shift: -5, blunting: 0.1}
+      adherence: 0.6
+      response: [0.5, 1.5]
+      washout_hours: 72
+    ivabradine:
+      heart_rate: {shift: -10, blunting: 0.2}
+      adherence: 0.6
+      response: [0.5, 1.5]
+      washout_hours: 24
 weightloss:
   # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4990387/
   adherence: 0.605

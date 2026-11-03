@@ -26,10 +26,21 @@ public class ContinuousVitalSignGeneratorTest {
   }
 
   private static ContinuousVitalSignGenerator heartRate(Person person,
-      ConditionVitalSignEffects effects) {
+      VitalSignEffects effects) {
     Map<String, Object> config =
         ContinuousVitalSignGenerator.loadConfig("cardiovascular.heart_rate.continuous");
     return new ContinuousVitalSignGenerator(person, 1, 60, 100, config, effects);
+  }
+
+  /** All heart rate effects of biometrics.yml: conditions with course and severity, drugs. */
+  private static VitalSignEffects allEffects() {
+    return VitalSignEffects.load("heart_rate", true, true, true, true);
+  }
+
+  /** Condition effects as listed: no course, no severity. */
+  private static VitalSignEffects flatConditionEffects() {
+    return new VitalSignEffects(ConditionVitalSignEffects.load("heart_rate", false, false), null,
+        30, 220);
   }
 
   @Test
@@ -61,11 +72,10 @@ public class ContinuousVitalSignGeneratorTest {
   }
 
   @Test
-  public void conditionEffectsChangeNothingWithoutConditions() {
+  public void effectsChangeNothingWithoutConditionsOrDrugs() {
     Person person = new Person(42L);
     ContinuousVitalSignGenerator plain = heartRate(person, null);
-    ContinuousVitalSignGenerator withEffects =
-        heartRate(person, ConditionVitalSignEffects.load("heart_rate"));
+    ContinuousVitalSignGenerator withEffects = heartRate(person, allEffects());
     for (int i = 0; i < 72; i++) {
       assertEquals(plain.getValue(START + i * HOUR), withEffects.getValue(START + i * HOUR), 0.0);
     }
@@ -74,13 +84,13 @@ public class ContinuousVitalSignGeneratorTest {
   @Test
   public void conditionEffectsShiftTheHealthyPath() {
     Person person = ConditionVitalSignEffectsTest.patient(42L);
-    ConditionVitalSignEffects effects = ConditionVitalSignEffects.load("heart_rate");
+    VitalSignEffects effects = flatConditionEffects();
     ContinuousVitalSignGenerator plain = heartRate(person, null);
     ContinuousVitalSignGenerator withEffects = heartRate(person, effects);
     long onset = START + 24 * HOUR;
     person.record.encounterStart(onset, EncounterType.EMERGENCY);
     person.record.conditionStart(onset, "91302008");  // sepsis
-    double sepsis = effects.offset(person, onset);
+    double sepsis = effects.getConditions().offset(person, onset);
     assertTrue(sepsis > 0);
     for (int i = 0; i < 72; i++) {
       long time = START + i * HOUR;
@@ -92,17 +102,113 @@ public class ContinuousVitalSignGeneratorTest {
   }
 
   @Test
-  public void conditionEffectsDoNotConsumeThePersonsRandomNumbers() {
+  public void betaBlockerLowersTheHealthyPathBelowTheNormalRange() {
+    // a person with a resting rate near 70 who takes beta blockers when prescribed
+    MedicationVitalSignEffects drugs = MedicationVitalSignEffects.load("heart_rate");
+    long seed = 0;
+    while (drugs.personalFactor(new Person(seed), "beta_blocker") < 1
+        || heartRate(seed).getBaseline() > 70) {
+      seed++;
+    }
+    Person person = ConditionVitalSignEffectsTest.patient(seed);
+    double factor = drugs.personalFactor(person, "beta_blocker");
+    ContinuousVitalSignGenerator plain = heartRate(person, null);
+    ContinuousVitalSignGenerator withEffects = heartRate(person, allEffects());
+    person.record.encounterStart(START, EncounterType.WELLNESS);
+    person.record.medicationStart(START, "866514", true);  // metoprolol
+    double lowest = Double.POSITIVE_INFINITY;
+    for (int i = 0; i < 24 * 30; i++) {
+      long time = START + i * HOUR;
+      assertEquals(plain.getValue(time) - 12 * factor, withEffects.getValue(time), 1e-9);
+      lowest = Math.min(lowest, withEffects.getValue(time));
+    }
+    assertTrue("lowest " + lowest, lowest < 60);
+  }
+
+  @Test
+  public void effectsDoNotConsumeThePersonsRandomNumbers() {
     Person person = ConditionVitalSignEffectsTest.patient(7L);
     person.record.encounterStart(START, EncounterType.EMERGENCY);
     person.record.conditionStart(START, "91302008");
-    ContinuousVitalSignGenerator g =
-        heartRate(person, ConditionVitalSignEffects.load("heart_rate"));
+    person.record.medicationStart(START, "866514", true);
+    person.record.medicationStart(START + HOUR, "1659131", false);  // piperacillin/tazobactam
+    ContinuousVitalSignGenerator g = heartRate(person, allEffects());
     long before = person.getCount();
     for (int i = 0; i < 100; i++) {
       g.getValue(START + i * HOUR);
     }
     assertEquals(before, person.getCount());
+  }
+
+  /**
+   * A generator that reads while the record grows (its index updated incrementally) gives the
+   * same values as one that reads the finished record, and a reading never changes once the
+   * record has moved past its time.
+   */
+  @Test
+  public void readingWhileTheRecordGrowsMatchesReadingAfterwards() {
+    Person person = ConditionVitalSignEffectsTest.patient(11L);
+    ContinuousVitalSignGenerator live = heartRate(person, allEffects());
+    double[] recorded = new double[24 * 12];
+    for (int h = 0; h < recorded.length; h++) {
+      long time = START + h * HOUR;
+      switch (h) {
+        case 10:
+          person.record.encounterStart(time, EncounterType.WELLNESS);
+          person.record.medicationStart(time, "866514", true);    // metoprolol
+          break;
+        case 50:
+          person.record.encounterStart(time, EncounterType.INPATIENT);
+          person.record.conditionStart(time, "233604007");        // pneumonia
+          break;
+        case 53:
+          person.record.medicationStart(time, "1665021", false);  // ceftriaxone
+          break;
+        case 120:
+          person.record.conditionEnd(time, "233604007");
+          person.record.encounterEnd(time, EncounterType.INPATIENT);
+          break;
+        case 200:
+          person.record.medicationEnd(time, "866514", null);
+          break;
+        default:
+          break;
+      }
+      recorded[h] = live.getValue(time);
+    }
+    ContinuousVitalSignGenerator fresh = heartRate(person, allEffects());
+    for (int h = recorded.length - 1; h >= 0; h--) {
+      assertEquals("hour " + h, recorded[h], fresh.getValue(START + h * HOUR), 0.0);
+      assertEquals("hour " + h, recorded[h], live.getValue(START + h * HOUR), 0.0);
+    }
+  }
+
+  /** Dense readings (every minute of a stay) stay cheap even for a long health record. */
+  @Test
+  public void denseReadingsAreFast() {
+    Person person = ConditionVitalSignEffectsTest.patient(13L);
+    long time = START - 400L * 24 * HOUR;
+    for (int i = 0; i < 400; i++) {  // a long life of visits, with listed and unlisted entries
+      person.record.encounterStart(time, EncounterType.AMBULATORY);
+      person.record.conditionStart(time, i % 7 == 0 ? "271737000" : "44054006");  // anemia
+      person.record.medicationStart(time, i % 5 == 0 ? "866514" : "310965", false);
+      person.record.medicationEnd(time + HOUR, i % 5 == 0 ? "866514" : "310965", null);
+      person.record.encounterEnd(time + HOUR, EncounterType.AMBULATORY);
+      time += 24 * HOUR;
+    }
+    person.record.encounterStart(START, EncounterType.INPATIENT);
+    person.record.conditionStart(START, "91302008");
+    ContinuousVitalSignGenerator g = heartRate(person, allEffects());
+    int readings = 3 * 24 * 60;
+    long t0 = System.nanoTime();
+    double sum = 0;
+    for (int i = 0; i < readings; i++) {
+      sum += g.getValue(START + i * 60_000L);
+    }
+    double msPerReading = (System.nanoTime() - t0) / 1e6 / readings;
+    assertTrue(sum > 0);
+    // typically a few microseconds; the bound only catches a return to rescanning everything
+    assertTrue("ms per reading " + msPerReading, msPerReading < 0.5);
   }
 
   /** Population snapshots (-u / -i) serialize people with their vital sign generators. */
@@ -111,8 +217,7 @@ public class ContinuousVitalSignGeneratorTest {
     Person person = ConditionVitalSignEffectsTest.patient(42L);
     person.record.encounterStart(START, EncounterType.EMERGENCY);
     person.record.conditionStart(START, "91302008");
-    person.setVitalSign(VitalSign.HEART_RATE,
-        heartRate(person, ConditionVitalSignEffects.load("heart_rate")));
+    person.setVitalSign(VitalSign.HEART_RATE, heartRate(person, allEffects()));
     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     try (ObjectOutputStream out = new ObjectOutputStream(bytes)) {
       out.writeObject(person);

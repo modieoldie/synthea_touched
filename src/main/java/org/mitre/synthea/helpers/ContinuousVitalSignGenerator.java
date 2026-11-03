@@ -13,9 +13,10 @@ import org.mitre.synthea.world.concepts.BiometricsConfig;
  * <p>The value is a per-person baseline plus a slow and a fast mean-reverting
  * (Ornstein-Uhlenbeck) deviation plus white measurement noise, reflected into [min, max].
  * Each deviation is an AR(1) process on its own fixed time grid and is linearly
- * interpolated between grid points. Optionally, ConditionVitalSignEffects then adds an offset
- * for the person's active conditions (e.g. sepsis raises heart rate), which may take the value
- * outside [min, max] up to the effects' own bounds.</p>
+ * interpolated between grid points. Optionally, VitalSignEffects then applies the person's
+ * clinical state: conditions (e.g. sepsis raises heart rate) and medications (e.g. a beta
+ * blocker lowers it), which may take the value outside [min, max] up to the effects' own
+ * bounds.</p>
  *
  * <p>The random innovations are a hash of the person's seed, the vital sign and the grid
  * index, so getValue(time) depends only on the time asked for. It does not depend on
@@ -23,6 +24,8 @@ import org.mitre.synthea.world.concepts.BiometricsConfig;
  * consume the person's random number stream.</p>
  */
 public class ContinuousVitalSignGenerator extends ValueGenerator {
+  /** Unchanged since the first version, so snapshots holding an older generator still load;
+   * LifecycleModule then replaces it. */
   private static final long serialVersionUID = 1L;
   private static final double MS_PER_HOUR = 3_600_000.0;
   /** Measurement noise is drawn once per minute. */
@@ -39,8 +42,10 @@ public class ContinuousVitalSignGenerator extends ValueGenerator {
   private final double measurementSd;
   private final Deviation slow;
   private final Deviation fast;
-  /** Offsets for the person's conditions; null for none. */
-  private final ConditionVitalSignEffects conditionEffects;
+  /** The person's conditions and medications; null for none. */
+  private final VitalSignEffects effects;
+  /** The entries of the person's record that the effects read, built on first use. */
+  private transient VitalSignRecordIndex index;
 
   /** One mean-reverting deviation with stationary SD sd and time constant tau. */
   private static class Deviation implements java.io.Serializable {
@@ -50,6 +55,9 @@ public class ContinuousVitalSignGenerator extends ValueGenerator {
     final double phi;
     final double innovationSd;
     final int terms;
+    /** The last two grid points computed (readings close in time share them). */
+    private transient long[] cachedK;
+    private transient double[] cachedValue;
 
     Deviation(long salt, double sd, double tauHours) {
       checkArgument(sd >= 0 && tauHours > 0);
@@ -62,13 +70,27 @@ public class ContinuousVitalSignGenerator extends ValueGenerator {
 
     /** AR(1) value at grid index k: sum over j of phi^j * innovation(k - j). */
     double atGridPoint(long seed, long k) {
+      if (cachedK == null) {
+        cachedK = new long[] {Long.MIN_VALUE, Long.MIN_VALUE};
+        cachedValue = new double[2];
+      }
+      for (int i = 0; i < 2; i++) {
+        if (cachedK[i] == k) {
+          return cachedValue[i];
+        }
+      }
       double sum = 0;
       double weight = 1;
       for (int j = 0; j <= terms; j++) {
-        sum += weight * gaussian(seed, salt, k - j);
+        sum += weight * StatelessRandom.gaussian(seed, salt, k - j);
         weight *= phi;
       }
-      return innovationSd * sum;
+      double value = innovationSd * sum;
+      // replace the earlier of the two cached points
+      int slot = cachedK[0] < cachedK[1] ? 0 : 1;
+      cachedK[slot] = k;
+      cachedValue[slot] = value;
+      return value;
     }
 
     double at(long seed, long time) {
@@ -95,28 +117,29 @@ public class ContinuousVitalSignGenerator extends ValueGenerator {
 
   /**
    * Create a generator for one vital sign of one person that also responds to the person's
-   * conditions.
+   * conditions and medications.
    *
    * @param person the person the values belong to
    * @param vitalSalt distinguishes this vital sign's random path from the person's others
-   * @param minimumValue lower bound of the values without condition effects
-   * @param maximumValue upper bound of the values without condition effects
+   * @param minimumValue lower bound of the values without effects
+   * @param maximumValue upper bound of the values without effects
    * @param config parameters, see the "continuous" entries in biometrics.yml
-   * @param conditionEffects offsets for the person's conditions, or null for none
+   * @param effects the person's conditions and medications, or null for none
    */
   public ContinuousVitalSignGenerator(Person person, long vitalSalt,
       double minimumValue, double maximumValue, Map<String, Object> config,
-      ConditionVitalSignEffects conditionEffects) {
+      VitalSignEffects effects) {
     super(person);
-    this.conditionEffects = conditionEffects;
+    this.effects = effects;
     checkArgument(minimumValue <= maximumValue);
-    this.seed = mix(person.getSeed() ^ mix(vitalSalt));
+    this.seed = StatelessRandom.mix(person.getSeed() ^ StatelessRandom.mix(vitalSalt));
     this.minimumValue = minimumValue;
     this.maximumValue = maximumValue;
     double margin = number(config, "baseline_margin");
     checkArgument(margin >= 0 && margin < 0.5);
     double width = maximumValue - minimumValue;
-    this.baseline = minimumValue + width * (margin + (1 - 2 * margin) * uniform(seed, 0, -1));
+    this.baseline = minimumValue
+        + width * (margin + (1 - 2 * margin) * StatelessRandom.uniform(seed, 0, -1));
     this.slow = new Deviation(1, number(config, "slow_sd"), number(config, "slow_tau_hours"));
     this.fast = new Deviation(2, number(config, "fast_sd"), number(config, "fast_tau_hours"));
     this.measurementSd = number(config, "measurement_sd");
@@ -140,9 +163,15 @@ public class ContinuousVitalSignGenerator extends ValueGenerator {
   @Override
   public double getValue(long time) {
     double value = baseline + slow.at(seed, time) + fast.at(seed, time)
-        + measurementSd * gaussian(seed, 3, Math.floorDiv(time, NOISE_BUCKET_MS));
+        + measurementSd * StatelessRandom.gaussian(seed, 3, Math.floorDiv(time, NOISE_BUCKET_MS));
     value = reflect(value);
-    return conditionEffects == null ? value : conditionEffects.apply(person, time, value);
+    if (effects == null) {
+      return value;
+    }
+    if (index == null) {
+      index = effects.newIndex();
+    }
+    return effects.apply(person, index, time, value);
   }
 
   /** Fold the value back into [min, max] at the bounds (clamping would pile values up there). */
@@ -171,29 +200,9 @@ public class ContinuousVitalSignGenerator extends ValueGenerator {
     return ((Number) value).doubleValue();
   }
 
-  /** SplitMix64 finalizer. */
-  private static long mix(long z) {
-    z = (z ^ (z >>> 30)) * 0xbf58476d1ce4e5b9L;
-    z = (z ^ (z >>> 27)) * 0x94d049bb133111ebL;
-    return z ^ (z >>> 31);
-  }
-
-  /** Uniform in (0, 1), a pure function of its arguments. */
-  private static double uniform(long seed, long salt, long index) {
-    long h = mix(seed + mix(salt * 0x9e3779b97f4a7c15L + index));
-    return ((h >>> 11) + 0.5) * 0x1.0p-53;
-  }
-
-  /** Standard normal (Box-Muller), a pure function of its arguments. */
-  private static double gaussian(long seed, long salt, long index) {
-    double u1 = uniform(seed, salt, 2 * index);
-    double u2 = uniform(seed, salt, 2 * index + 1);
-    return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-  }
-
   @Override
   public String toString() {
     return "ContinuousVitalSignGenerator {baseline=" + baseline + ", minimumValue=" + minimumValue
-        + ", maximumValue=" + maximumValue + ", conditionEffects=" + conditionEffects + "}";
+        + ", maximumValue=" + maximumValue + ", effects=" + effects + "}";
   }
 }

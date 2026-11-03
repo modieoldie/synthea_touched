@@ -1,15 +1,23 @@
 package org.mitre.synthea.modules;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertTrue;
 
+import java.util.Map;
 import java.util.regex.Pattern;
 
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mitre.synthea.helpers.ConstantValueGenerator;
+import org.mitre.synthea.helpers.ContinuousVitalSignGenerator;
+import org.mitre.synthea.helpers.MedicationVitalSignEffects;
 import org.mitre.synthea.helpers.PhysiologyValueGenerator;
 import org.mitre.synthea.helpers.Utilities;
+import org.mitre.synthea.helpers.ValueGenerator;
+import org.mitre.synthea.helpers.VitalSignEffects;
 import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.concepts.VitalSign;
 
@@ -37,6 +45,35 @@ public class LifecycleModuleTest {
       LifecycleModule.death(person, time);
     }
     assertEquals(false, person.alive(time));
+  }
+
+  /**
+   * A generator loaded from a population snapshot may carry older parameters: the lifecycle
+   * replaces any continuous generator, but leaves a value a module set explicitly alone.
+   */
+  @Test
+  public void continuousVitalSignIsRebuiltWithCurrentParameters() {
+    Map<String, Object> config =
+        ContinuousVitalSignGenerator.loadConfig("cardiovascular.heart_rate.continuous");
+    Person person = new Person(3L);
+    long time = System.currentTimeMillis();
+    ContinuousVitalSignGenerator stale = new ContinuousVitalSignGenerator(person,
+        VitalSign.HEART_RATE.ordinal() + 1, 60, 100, config);
+    person.setVitalSign(VitalSign.HEART_RATE, stale);
+    VitalSignEffects effects = new VitalSignEffects(null,
+        MedicationVitalSignEffects.load("heart_rate"), 30, 220);
+    LifecycleModule.setContinuousVitalSign(person, VitalSign.HEART_RATE,
+        new double[] {60, 100}, config, effects);
+    ValueGenerator current = person.vitalSigns.get(VitalSign.HEART_RATE);
+    assertNotSame(stale, current);
+    assertTrue(current.toString().contains("MedicationVitalSignEffects"));
+    // same parameters for the healthy path: the same values
+    assertEquals(stale.getValue(time), current.getValue(time), 0);
+
+    person.setVitalSign(VitalSign.HEART_RATE, 72.0);  // as a VitalSign state would
+    LifecycleModule.setContinuousVitalSign(person, VitalSign.HEART_RATE,
+        new double[] {60, 100}, config, effects);
+    assertTrue(person.vitalSigns.get(VitalSign.HEART_RATE) instanceof ConstantValueGenerator);
   }
 
   @Test
