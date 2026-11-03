@@ -18,6 +18,32 @@ metabolic:
     hypertensive:
       systolic: [140,160,200] # mmHg
       diastolic: [90,120] # mmHg
+    # used when lifecycle.vitals.blood_pressure.model = continuous (ContinuousBloodPressureGenerator).
+    # The resting level is the stock one (the ranges above, hypertension drugs, lifestyle care plan).
+    # slow/fast: mean-reverting deviations (time constant; SD in mmHg), measurement_sd: per-minute noise.
+    # Each is shared with the other value with this correlation. The SDs add up to the stock
+    # generator's variation (systolic 8, diastolic 5), so readings outside stays have the same spread.
+    # nocturnal_dip: each person's dip at the trough, as a share of the level, drawn once (normal with
+    # mean and sd, clipped to [0, max]); it applies during stays (inpatient, SNF, hospice), as a raised
+    # cosine around dip_trough_hour (local time) that is 0 beyond dip_half_width_hours. Normal dipping is
+    # 10-20% of the daytime level (O'Brien et al., Lancet 1988) and is blunted in many inpatients.
+    # max_diastolic_share: the diastolic level is kept softly below this share of the systolic level.
+    # The stock ranges are drawn separately, so many people get a narrow pulse pressure (< 25% of
+    # systolic, rare in adults: diastolic is about 0.6 of systolic on average); with the level at most
+    # 0.7, readings narrower than 25% come only from short-term variation. Each diastolic reading is
+    # also kept at least min_pulse_pressure (mmHg) below the systolic one.
+    # Placeholder values, not yet calibrated against observed inpatient data.
+    continuous:
+      slow_tau_hours: 48
+      fast_tau_hours: 2
+      correlation: 0.7
+      systolic: {slow_sd: 5.0, fast_sd: 5.0, measurement_sd: 3.7}
+      diastolic: {slow_sd: 3.0, fast_sd: 3.0, measurement_sd: 2.6}
+      nocturnal_dip: {mean: 0.10, sd: 0.05, max: 0.2}
+      dip_trough_hour: 3
+      dip_half_width_hours: 6
+      max_diastolic_share: 0.7
+      min_pulse_pressure: 10
   lipid_panel: #https://www.nlm.nih.gov/medlineplus/magazine/issues/summer12/articles/summer12pg6-7.html
     cholesterol:   [160,200,239,259,279,300] # mg/dL
     triglycerides: [100,150,199,499,550,600] # mg/dL
@@ -95,10 +121,12 @@ respiratory:
       fast_tau_hours: 4
       measurement_sd: 0.5
 # Bounds of heart and respiration rate once conditions and medications act on them (the "continuous"
-# values above stay inside "normal" without them).
+# values above stay inside "normal" without them), and of continuous blood pressure.
 vital_sign_effect_bounds:
   heart_rate: [30, 220]
   respiration_rate: [6, 60]
+  systolic_blood_pressure: [50, 250]
+  diastolic_blood_pressure: [25, 150]
 # How conditions raise heart and respiration rate (ConditionVitalSignEffects). Used by the continuous
 # model when lifecycle.vitals.heart_and_respiration_rate.condition_effects = true.
 # Each effect adds its offset while one of its conditions (SNOMED codes, as recorded in the health
@@ -120,6 +148,13 @@ vital_sign_effect_bounds:
 # Magnitudes and courses are clinically plausible placeholders unless a source is given: e.g. fever
 # ~ +8-10 bpm per degree C (Liebermeister's rule); sepsis puts a typical patient above the SIRS cut-offs
 # (heart rate > 90, respiration rate > 20).
+# Blood pressure (lifecycle.vitals.blood_pressure.model = continuous, condition_effects = true):
+# systolic_blood_pressure and diastolic_blood_pressure act on the resting level as a factor, not in mmHg:
+# the combined offset is the natural log of the factor (-0.32 = x0.73, a quarter lower), so a hypertensive
+# patient falls as far as a normotensive one in proportion, and severe episodes and several effects
+# compound towards 0 instead of below it. Septic shock puts a typical normotensive patient at a mean
+# arterial pressure below 65 mmHg at onset (Sepsis-3 shock criterion) with a shock index (heart rate /
+# systolic) above 1; sepsis alone leaves MAP near 85.
 vital_sign_condition_effects:
   recovery_hours: 12
   combination_weight: 0.5
@@ -131,6 +166,8 @@ vital_sign_condition_effects:
       codes: ['76571007', '27942005'] # Septic shock; Shock
       heart_rate: 35
       respiration_rate: 9
+      systolic_blood_pressure: -0.32
+      diastolic_blood_pressure: -0.42
       max_days: 5
       resolution_hours: 24
       residual: 0.1
@@ -141,6 +178,8 @@ vital_sign_condition_effects:
       codes: ['91302008', '770349000', '448813005', '448417001', '698819004', '5758002']
       heart_rate: 25
       respiration_rate: 7
+      systolic_blood_pressure: -0.08
+      diastolic_blood_pressure: -0.10
       max_days: 14
       resolution_hours: 48
       residual: 0.1

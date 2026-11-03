@@ -151,7 +151,7 @@
           }
         },
         {
-          "transition": "Record_Blood_Pressure"
+          "transition": "ICU_Blood_Pressure"
         }
       ],
       "range": {
@@ -264,7 +264,7 @@
           "display": "Septic shock (disorder)"
         }
       ],
-      "direct_transition": "Admit_to_ICU"
+      "direct_transition": "Septic_Shock_Recorded"
     },
     "Capillary_Refill": {
       "type": "Observation",
@@ -307,11 +307,11 @@
       "type": "Simple",
       "distributed_transition": [
         {
-          "transition": "Low_MAP",
+          "transition": "Septic_Shock_Blood_Pressure",
           "distribution": 0.2
         },
         {
-          "transition": "Normal_MAP",
+          "transition": "Sepsis_Blood_Pressure",
           "distribution": 0.8
         }
       ],
@@ -376,7 +376,7 @@
           "display": "4 ML norepinephrine 1 MG/ML Injection"
         }
       ],
-      "direct_transition": "Record_Blood_Pressure",
+      "direct_transition": "ICU_Blood_Pressure",
       "administration": true,
       "remarks": [
         "Among them, NE remains the most commonly used vasopressor and is recommended as the first-line agent by the Surviving Sepsis Campaign (SSC) experts (2). As a strong α-adrenergic agonist, NE increases blood pressure primarily through its vasoconstrictive properties with little effect on heart rate. Ref: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7333107/#:~:text=Among%20them%2C%20NE%20remains%20the,little%20effect%20on%20heart%20rate.",
@@ -638,6 +638,237 @@
     "End Encounter by Death": {
       "type": "EncounterEnd",
       "direct_transition": "Terminal"
+    },
+    "Septic_Shock_Blood_Pressure": {
+      "type": "Simple",
+      "remarks": [
+        "Continuous blood pressure: record the shock onset first, then blood pressure and MAP from the generator, which lowers them in septic shock. Otherwise type in a low MAP as before."
+      ],
+      "conditional_transition": [
+        {
+          "transition": "Septic_Shock",
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "continuous_blood_pressure",
+            "operator": "==",
+            "value": true
+          }
+        },
+        {
+          "transition": "Low_MAP"
+        }
+      ]
+    },
+    "Sepsis_Blood_Pressure": {
+      "type": "Simple",
+      "remarks": [
+        "Continuous blood pressure: record blood pressure and MAP from the generator. Otherwise type in a normal MAP as before."
+      ],
+      "conditional_transition": [
+        {
+          "transition": "Record_Sepsis_Blood_Pressure",
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "continuous_blood_pressure",
+            "operator": "==",
+            "value": true
+          }
+        },
+        {
+          "transition": "Normal_MAP"
+        }
+      ]
+    },
+    "Septic_Shock_Recorded": {
+      "type": "Simple",
+      "remarks": [
+        "Continuous blood pressure: record blood pressure and MAP now that septic shock has begun."
+      ],
+      "conditional_transition": [
+        {
+          "transition": "Record_Shock_Blood_Pressure",
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "continuous_blood_pressure",
+            "operator": "==",
+            "value": true
+          }
+        },
+        {
+          "transition": "Admit_to_ICU"
+        }
+      ]
+    },
+    "Record_Shock_Blood_Pressure": {
+      "type": "MultiObservation",
+      "category": "vital-signs",
+      "number_of_observations": 0,
+      "codes": [
+        {
+          "system": "LOINC",
+          "code": "85354-9",
+          "display": "Blood pressure panel with all children optional"
+        }
+      ],
+      "observations": [
+        {
+          "category": "vital-signs",
+          "unit": "mm[Hg]",
+          "codes": [
+            {
+              "system": "LOINC",
+              "code": "8480-6",
+              "display": "Systolic Blood Pressure"
+            }
+          ],
+          "vital_sign": "Systolic Blood Pressure"
+        },
+        {
+          "category": "laboratory",
+          "unit": "mm[Hg]",
+          "codes": [
+            {
+              "system": "LOINC",
+              "code": "8462-4",
+              "display": "Diastolic Blood Pressure"
+            }
+          ],
+          "vital_sign": "Diastolic Blood Pressure"
+        }
+      ],
+      "direct_transition": "Record_Shock_MAP"
+    },
+    "Record_Shock_MAP": {
+      "type": "Observation",
+      "category": "vital-signs",
+      "unit": "mm[Hg]",
+      "codes": [
+        {
+          "system": "LOINC",
+          "code": "8478-0",
+          "display": "Mean blood pressure"
+        }
+      ],
+      "direct_transition": "Admit_to_ICU",
+      "vital_sign": "Mean Arterial Pressure",
+      "remarks": [
+        "Mean arterial pressure of the blood pressure just recorded."
+      ]
+    },
+    "Record_Sepsis_Blood_Pressure": {
+      "type": "MultiObservation",
+      "category": "vital-signs",
+      "number_of_observations": 0,
+      "codes": [
+        {
+          "system": "LOINC",
+          "code": "85354-9",
+          "display": "Blood pressure panel with all children optional"
+        }
+      ],
+      "observations": [
+        {
+          "category": "vital-signs",
+          "unit": "mm[Hg]",
+          "codes": [
+            {
+              "system": "LOINC",
+              "code": "8480-6",
+              "display": "Systolic Blood Pressure"
+            }
+          ],
+          "vital_sign": "Systolic Blood Pressure"
+        },
+        {
+          "category": "laboratory",
+          "unit": "mm[Hg]",
+          "codes": [
+            {
+              "system": "LOINC",
+              "code": "8462-4",
+              "display": "Diastolic Blood Pressure"
+            }
+          ],
+          "vital_sign": "Diastolic Blood Pressure"
+        }
+      ],
+      "direct_transition": "Record_Sepsis_MAP"
+    },
+    "Record_Sepsis_MAP": {
+      "type": "Observation",
+      "category": "vital-signs",
+      "unit": "mm[Hg]",
+      "codes": [
+        {
+          "system": "LOINC",
+          "code": "8478-0",
+          "display": "Mean blood pressure"
+        }
+      ],
+      "direct_transition": "Admit_to_Inpatient",
+      "vital_sign": "Mean Arterial Pressure",
+      "remarks": [
+        "Mean arterial pressure of the blood pressure just recorded."
+      ]
+    },
+    "ICU_Blood_Pressure": {
+      "type": "Simple",
+      "remarks": [
+        "Continuous blood pressure: record blood pressure in the ICU from the generator (with or without vasopressors). Otherwise type in a range as before (systolic and diastolic drawn separately)."
+      ],
+      "conditional_transition": [
+        {
+          "transition": "Record_ICU_Blood_Pressure",
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "continuous_blood_pressure",
+            "operator": "==",
+            "value": true
+          }
+        },
+        {
+          "transition": "Record_Blood_Pressure"
+        }
+      ]
+    },
+    "Record_ICU_Blood_Pressure": {
+      "type": "MultiObservation",
+      "category": "vital-signs",
+      "number_of_observations": 0,
+      "codes": [
+        {
+          "system": "LOINC",
+          "code": "85354-9",
+          "display": "Blood pressure panel with all children optional"
+        }
+      ],
+      "observations": [
+        {
+          "category": "vital-signs",
+          "unit": "mm[Hg]",
+          "codes": [
+            {
+              "system": "LOINC",
+              "code": "8480-6",
+              "display": "Systolic Blood Pressure"
+            }
+          ],
+          "vital_sign": "Systolic Blood Pressure"
+        },
+        {
+          "category": "laboratory",
+          "unit": "mm[Hg]",
+          "codes": [
+            {
+              "system": "LOINC",
+              "code": "8462-4",
+              "display": "Diastolic Blood Pressure"
+            }
+          ],
+          "vital_sign": "Diastolic Blood Pressure"
+        }
+      ],
+      "direct_transition": "Check_ARDS"
     }
   },
   "gmf_version": 2

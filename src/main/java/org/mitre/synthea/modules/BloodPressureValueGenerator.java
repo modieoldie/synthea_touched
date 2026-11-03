@@ -18,8 +18,15 @@ import org.mitre.synthea.world.concepts.HealthRecord;
 /**
  * Generate realistic blood pressure vital signs,
  * with impacts from select medications.
+ *
+ * <p>The resting level (baseline, medications, lifestyle) is also used by
+ * ContinuousBloodPressureGenerator, which draws its random numbers statelessly through
+ * {@link Draws}.</p>
  */
 public class BloodPressureValueGenerator extends ValueGenerator {
+  /** The value Java computed for this class before it was pinned, so snapshots still load. */
+  private static final long serialVersionUID = -4463697955745176250L;
+
   /**
    * Enum representing systolic and diastolic blood pressure.
    */
@@ -89,6 +96,44 @@ public class BloodPressureValueGenerator extends ValueGenerator {
   /** Cycle time for blood pressure variation in milliseconds. */
   private static final long CYCLE_TIME = Utilities.convertTime("hours", 12);
 
+  /**
+   * Where the resting level's random numbers come from: each is drawn once per person and key
+   * (a baseline, a drug's impact, a care plan's adherence).
+   */
+  public interface Draws {
+    /**
+     * A random number between low and high (low may be the larger one).
+     *
+     * @param key what the number is for, the same for every draw of the same thing
+     * @param low one end of the range
+     * @param high the other end of the range
+     * @return the number
+     */
+    double uniform(String key, double low, double high);
+
+    /** Whether a drawn number is kept in the person's attributes and reused from then on. */
+    boolean keep();
+  }
+
+  /** Stock Synthea: the person's random number stream, kept in the person's attributes. */
+  private static final class PersonDraws implements Draws {
+    private final Person person;
+
+    PersonDraws(Person person) {
+      this.person = person;
+    }
+
+    @Override
+    public double uniform(String key, double low, double high) {
+      return person.rand(low, high);
+    }
+
+    @Override
+    public boolean keep() {
+      return true;
+    }
+  }
+
   // simple 1-value cache, so that we get consistent results when called with the same timestamp
   // note that consistency is not guaranteed if we go time A -> time B -> time A across modules.
   // in that case we'd need a bigger cache
@@ -123,15 +168,29 @@ public class BloodPressureValueGenerator extends ValueGenerator {
       return cachedValue;
     }
 
-    double baseline = calculateBaseline(person);
-
-    cachedValue = baseline
-      + getMedicationImpacts(person)
-      + getLifestyleImpacts(person, baseline, time)
+    cachedValue = restingLevel(person, sysDias, time, new PersonDraws(person))
       + getVariation(person, time);
 
     cacheTime = time;
     return cachedValue;
+  }
+
+  /**
+   * The resting blood pressure: the baseline for the person's hypertension status plus the
+   * impacts of medications and lifestyle changes, before daily variation.
+   *
+   * @param person The person.
+   * @param sysDias Systolic or diastolic.
+   * @param time The time.
+   * @param draws Where the random numbers come from.
+   * @return The resting blood pressure.
+   */
+  public static double restingLevel(Person person, SysDias sysDias, long time, Draws draws) {
+    double baseline = calculateBaseline(person, sysDias, draws);
+
+    return baseline
+      + getMedicationImpacts(person, sysDias, draws)
+      + getLifestyleImpacts(person, sysDias, baseline, time, draws);
   }
 
   /**
@@ -141,25 +200,29 @@ public class BloodPressureValueGenerator extends ValueGenerator {
    * @param drug The drug being taken.
    * @param sysDias Indicates whether the impact is on systolic or diastolic blood pressure.
    * @param impactRange The range of the drug's impact.
+   * @param draws Where the random numbers come from.
    * @return The impact of the drug on blood pressure.
    */
   private static double getDrugImpact(Person person, String drug, SysDias sysDias,
-      Range<Double> impactRange) {
+      Range<Double> impactRange, Draws draws) {
     Table<String, SysDias, Double> personalDrugImpacts =
         (Table<String, SysDias, Double>)person.attributes.get("htn_drug_impacts");
-    if (personalDrugImpacts == null) {
+    if (personalDrugImpacts == null && draws.keep()) {
       personalDrugImpacts = HashBasedTable.create();
       person.attributes.put("htn_drug_impacts", personalDrugImpacts);
     }
 
-    if (personalDrugImpacts.contains(drug, sysDias)) {
+    if (personalDrugImpacts != null && personalDrugImpacts.contains(drug, sysDias)) {
       return personalDrugImpacts.get(drug, sysDias);
     }
 
     // note these are intentionally flipped. "max impact" == lower number, since these are negative
-    double impact = person.rand(impactRange.high, impactRange.low);
+    double impact = draws.uniform("htn_drug_" + drug + "_" + sysDias,
+        impactRange.high, impactRange.low);
 
-    personalDrugImpacts.put(drug, sysDias, impact);
+    if (draws.keep()) {
+      personalDrugImpacts.put(drug, sysDias, impact);
+    }
 
     return impact;
   }
@@ -170,9 +233,11 @@ public class BloodPressureValueGenerator extends ValueGenerator {
    * applying medications, lifestyle changes, and intra-daily variation.
    *
    * @param person The person for whom the baseline is being calculated.
+   * @param sysDias Systolic or diastolic.
+   * @param draws Where the random numbers come from.
    * @return The baseline blood pressure.
    */
-  private double calculateBaseline(Person person) {
+  private static double calculateBaseline(Person person, SysDias sysDias, Draws draws) {
     boolean hypertension = (boolean) person.attributes.getOrDefault("hypertension", false);
     boolean severe = (boolean) person.attributes.getOrDefault("hypertension_severe", false);
 
@@ -189,20 +254,23 @@ public class BloodPressureValueGenerator extends ValueGenerator {
         if (hypertension) {
           if (severe) {
             // this leaves fewer people at the upper end of the spectrum
-            baseline = person.rand(HYPERTENSIVE_SYS_BP_RANGE[1], HYPERTENSIVE_SYS_BP_RANGE[2]);
+            baseline = draws.uniform(bpBaselineKey,
+                HYPERTENSIVE_SYS_BP_RANGE[1], HYPERTENSIVE_SYS_BP_RANGE[2]);
 
           } else {
             // this skews the distribution to be more on the lower side of the range
-            baseline = person.rand(HYPERTENSIVE_SYS_BP_RANGE[0], HYPERTENSIVE_SYS_BP_RANGE[1]);
+            baseline = draws.uniform(bpBaselineKey,
+                HYPERTENSIVE_SYS_BP_RANGE[0], HYPERTENSIVE_SYS_BP_RANGE[1]);
           }
         } else {
-          baseline = person.rand(NORMAL_SYS_BP_RANGE);
+          baseline = draws.uniform(bpBaselineKey, NORMAL_SYS_BP_RANGE[0], NORMAL_SYS_BP_RANGE[1]);
         }
       } else {
         if (hypertension) {
-          baseline = person.rand(HYPERTENSIVE_DIA_BP_RANGE);
+          baseline = draws.uniform(bpBaselineKey,
+              HYPERTENSIVE_DIA_BP_RANGE[0], HYPERTENSIVE_DIA_BP_RANGE[1]);
         } else {
-          baseline = person.rand(NORMAL_DIA_BP_RANGE);
+          baseline = draws.uniform(bpBaselineKey, NORMAL_DIA_BP_RANGE[0], NORMAL_DIA_BP_RANGE[1]);
         }
       }
 
@@ -212,7 +280,9 @@ public class BloodPressureValueGenerator extends ValueGenerator {
         baseline -= 1;
       }
 
-      person.attributes.put(bpBaselineKey, baseline);
+      if (draws.keep()) {
+        person.attributes.put(bpBaselineKey, baseline);
+      }
       return baseline;
     }
   }
@@ -222,11 +292,14 @@ public class BloodPressureValueGenerator extends ValueGenerator {
    * will have on their BP. Lifestyle changes are tracked as specific CarePlans.
    *
    * @param person The person making lifestyle changes.
+   * @param sysDias Systolic or diastolic.
    * @param baseline The baseline blood pressure.
    * @param time The time for which the impact is being calculated.
+   * @param draws Where the random numbers come from.
    * @return The impact of lifestyle changes on blood pressure.
    */
-  private double getLifestyleImpacts(Person person, double baseline, long time) {
+  private static double getLifestyleImpacts(Person person, SysDias sysDias, double baseline,
+      long time, Draws draws) {
     // if the person has a "blood pressure care plan"
     // assume that over ~1 year their blood pressure will be reduced by ~14 mmHg
     // with most of that happening in the first 6 mos
@@ -234,7 +307,7 @@ public class BloodPressureValueGenerator extends ValueGenerator {
     // https://pubmed.ncbi.nlm.nih.gov/12709466/
 
     double maxDrop;
-    if (this.sysDias == SysDias.SYSTOLIC) {
+    if (sysDias == SysDias.SYSTOLIC) {
       // don't allow diet/exercise alone to drop below 124
       double delta = Math.abs(baseline - 124);
       maxDrop = -Math.min(delta, 14.0);
@@ -263,8 +336,10 @@ public class BloodPressureValueGenerator extends ValueGenerator {
         if (person.attributes.containsKey(key)) {
           carePlanAdherent = (boolean) person.attributes.get(key);
         } else {
-          carePlanAdherent = person.rand() < adherenceRatio;
-          person.attributes.put(key, carePlanAdherent);
+          carePlanAdherent = draws.uniform(key, 0, 1) < adherenceRatio;
+          if (draws.keep()) {
+            person.attributes.put(key, carePlanAdherent);
+          }
         }
         if (carePlanAdherent) {
           long start = careplan.start;
@@ -291,17 +366,19 @@ public class BloodPressureValueGenerator extends ValueGenerator {
    * Get the impact of medications on blood pressure.
    *
    * @param person The person taking medications.
+   * @param sysDias Systolic or diastolic.
+   * @param draws Where the random numbers come from.
    * @return The impact of medications on blood pressure.
    */
-  private double getMedicationImpacts(Person person) {
+  private static double getMedicationImpacts(Person person, SysDias sysDias, Draws draws) {
     double drugImpactDelta = 0.0;
     // see also LifecycleModule.calculateVitalSigns
 
-    for (Map.Entry<String, Range<Double>> e : HTN_DRUG_IMPACTS.column(this.sysDias).entrySet()) {
+    for (Map.Entry<String, Range<Double>> e : HTN_DRUG_IMPACTS.column(sysDias).entrySet()) {
       String medicationCode = e.getKey();
       Range<Double> impactRange = e.getValue();
       if (person.record.medicationActive(medicationCode)) {
-        double impact = getDrugImpact(person, medicationCode, this.sysDias, impactRange);
+        double impact = getDrugImpact(person, medicationCode, sysDias, impactRange, draws);
 
         // impacts are negative, so add them (ie, don't subtract them)
         drugImpactDelta += impact;

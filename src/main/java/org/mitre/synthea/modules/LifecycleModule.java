@@ -15,6 +15,7 @@ import org.mitre.synthea.helpers.Attributes;
 import org.mitre.synthea.helpers.Attributes.Inventory;
 import org.mitre.synthea.helpers.ConditionVitalSignEffects;
 import org.mitre.synthea.helpers.Config;
+import org.mitre.synthea.helpers.ContinuousBloodPressureGenerator;
 import org.mitre.synthea.helpers.ContinuousVitalSignGenerator;
 import org.mitre.synthea.helpers.PhysiologyValueGenerator;
 import org.mitre.synthea.helpers.RandomCollection;
@@ -763,6 +764,30 @@ public final class LifecycleModule extends Module {
           CONDITION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE, CONDITION_COURSE, CONDITION_SEVERITY,
           MEDICATION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE)
       : null;
+  /** "stock" (default): BloodPressureValueGenerator; "continuous": see
+   * ContinuousBloodPressureGenerator. */
+  private static final boolean CONTINUOUS_BLOOD_PRESSURE = "continuous".equals(
+      Config.get("lifecycle.vitals.blood_pressure.model", "stock"));
+  /** Set to true while the continuous blood pressure model is on, for modules that record blood
+   * pressure (sepsis.json): they then read it from the generator instead of typing in a range. */
+  public static final String CONTINUOUS_BLOOD_PRESSURE_ATTRIBUTE = "continuous_blood_pressure";
+  private static final Map<String, Object> BLOOD_PRESSURE_CONTINUOUS = CONTINUOUS_BLOOD_PRESSURE
+      ? ContinuousVitalSignGenerator.loadConfig("metabolic.blood_pressure.continuous") : null;
+  /** Continuous blood pressure only: conditions such as septic shock lower blood pressure. The
+   * course and severity settings are those of heart and respiration rate, so one episode's
+   * severity is shared by all four. */
+  private static final boolean CONDITION_EFFECTS_ON_BLOOD_PRESSURE = CONTINUOUS_BLOOD_PRESSURE
+      && Config.getAsBoolean("lifecycle.vitals.blood_pressure.condition_effects", true);
+  private static final ConditionVitalSignEffects SYSTOLIC_EFFECTS =
+      CONDITION_EFFECTS_ON_BLOOD_PRESSURE ? ConditionVitalSignEffects.load(
+          "systolic_blood_pressure", CONDITION_COURSE, CONDITION_SEVERITY) : null;
+  private static final ConditionVitalSignEffects DIASTOLIC_EFFECTS =
+      CONDITION_EFFECTS_ON_BLOOD_PRESSURE ? ConditionVitalSignEffects.load(
+          "diastolic_blood_pressure", CONDITION_COURSE, CONDITION_SEVERITY) : null;
+  private static final double[] SYSTOLIC_BOUNDS = CONTINUOUS_BLOOD_PRESSURE
+      ? VitalSignEffects.loadBounds("systolic_blood_pressure") : null;
+  private static final double[] DIASTOLIC_BOUNDS = CONTINUOUS_BLOOD_PRESSURE
+      ? VitalSignEffects.loadBounds("diastolic_blood_pressure") : null;
 
   /**
    * Calculate this person's vital signs,
@@ -918,6 +943,11 @@ public final class LifecycleModule extends Module {
     person.setVitalSign(VitalSign.CARBON_DIOXIDE, person.rand(CO2_RANGE));
     person.setVitalSign(VitalSign.SODIUM, person.rand(SODIUM_RANGE));
 
+    if (CONTINUOUS_BLOOD_PRESSURE) {
+      setContinuousBloodPressure(person, BLOOD_PRESSURE_CONTINUOUS, SYSTOLIC_EFFECTS,
+          DIASTOLIC_EFFECTS, SYSTOLIC_BOUNDS, DIASTOLIC_BOUNDS);
+    }
+
     if (CONTINUOUS_HEART_AND_RESPIRATION_RATE) {
       setContinuousVitalSign(person, VitalSign.HEART_RATE, HEART_RATE_NORMAL,
           HEART_RATE_CONTINUOUS, HEART_RATE_EFFECTS);
@@ -954,6 +984,32 @@ public final class LifecycleModule extends Module {
         || current instanceof ContinuousVitalSignGenerator) {
       person.setVitalSign(vitalSign, new ContinuousVitalSignGenerator(person,
           vitalSign.ordinal() + 1, range[0], range[1], config, effects));
+    }
+  }
+
+  /**
+   * Give the person ContinuousBloodPressureGenerators with the current parameters, replacing a
+   * missing, stock or continuous blood pressure generator (as for heart rate, a value a module
+   * set explicitly is left alone), add mean arterial pressure, and mark the person for modules
+   * that record blood pressure.
+   */
+  static void setContinuousBloodPressure(Person person, Map<String, Object> config,
+      ConditionVitalSignEffects systolicEffects, ConditionVitalSignEffects diastolicEffects,
+      double[] systolicBounds, double[] diastolicBounds) {
+    person.attributes.put(CONTINUOUS_BLOOD_PRESSURE_ATTRIBUTE, true);
+    if (!person.vitalSigns.containsKey(VitalSign.MEAN_ARTERIAL_PRESSURE)) {
+      person.setVitalSign(VitalSign.MEAN_ARTERIAL_PRESSURE,
+          new ContinuousBloodPressureGenerator.MeanArterialPressure(person));
+    }
+    for (SysDias sysDias : SysDias.values()) {
+      VitalSign vitalSign = sysDias == SysDias.SYSTOLIC
+          ? VitalSign.SYSTOLIC_BLOOD_PRESSURE : VitalSign.DIASTOLIC_BLOOD_PRESSURE;
+      ValueGenerator current = person.vitalSigns.get(vitalSign);
+      if (current == null || current instanceof BloodPressureValueGenerator
+          || current instanceof ContinuousBloodPressureGenerator) {
+        person.setVitalSign(vitalSign, new ContinuousBloodPressureGenerator(person, sysDias,
+            config, systolicEffects, diastolicEffects, systolicBounds, diastolicBounds));
+      }
     }
   }
 
@@ -1370,6 +1426,7 @@ public final class LifecycleModule extends Module {
     Attributes.inventory(attributes, m, Person.SMOKER, true, false, "Boolean");
     Attributes.inventory(attributes, m, Person.DEATHDATE, true, false, "1046327126000");
     // Write
+    Attributes.inventory(attributes, m, CONTINUOUS_BLOOD_PRESSURE_ATTRIBUTE, false, true, "true");
     Attributes.inventory(attributes, m, "pregnant", false, true, "Boolean");
     Attributes.inventory(attributes, m, "probability_of_fall_injury", false, true, "1.0");
     Attributes.inventory(attributes, m, "RH_NEG", false, true, "Boolean");

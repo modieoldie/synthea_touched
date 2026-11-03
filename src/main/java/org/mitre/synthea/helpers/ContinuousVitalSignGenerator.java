@@ -48,7 +48,7 @@ public class ContinuousVitalSignGenerator extends ValueGenerator {
   private transient VitalSignRecordIndex index;
 
   /** One mean-reverting deviation with stationary SD sd and time constant tau. */
-  private static class Deviation implements java.io.Serializable {
+  static class Deviation implements java.io.Serializable {
     private static final long serialVersionUID = 1L;
     final long salt;
     final double gridMs;

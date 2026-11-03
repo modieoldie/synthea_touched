@@ -12,6 +12,7 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.mitre.synthea.helpers.ConstantValueGenerator;
+import org.mitre.synthea.helpers.ContinuousBloodPressureGenerator;
 import org.mitre.synthea.helpers.ContinuousVitalSignGenerator;
 import org.mitre.synthea.helpers.MedicationVitalSignEffects;
 import org.mitre.synthea.helpers.PhysiologyValueGenerator;
@@ -74,6 +75,41 @@ public class LifecycleModuleTest {
     LifecycleModule.setContinuousVitalSign(person, VitalSign.HEART_RATE,
         new double[] {60, 100}, config, effects);
     assertTrue(person.vitalSigns.get(VitalSign.HEART_RATE) instanceof ConstantValueGenerator);
+  }
+
+  /**
+   * The continuous blood pressure model replaces the stock generators (a snapshot person's),
+   * leaves a value a module set alone, adds a mean arterial pressure that matches the recorded
+   * values, and marks the person for sepsis.json.
+   */
+  @Test
+  public void continuousBloodPressureReplacesTheStockGenerators() {
+    Map<String, Object> config =
+        ContinuousVitalSignGenerator.loadConfig("metabolic.blood_pressure.continuous");
+    double[] systolicBounds = VitalSignEffects.loadBounds("systolic_blood_pressure");
+    double[] diastolicBounds = VitalSignEffects.loadBounds("diastolic_blood_pressure");
+    Person person = new Person(3L);
+    long time = System.currentTimeMillis();
+    person.setVitalSign(VitalSign.SYSTOLIC_BLOOD_PRESSURE,
+        new BloodPressureValueGenerator(person, BloodPressureValueGenerator.SysDias.SYSTOLIC));
+    person.setVitalSign(VitalSign.DIASTOLIC_BLOOD_PRESSURE, 75.0);  // as a VitalSign state would
+    LifecycleModule.setContinuousBloodPressure(person, config, null, null, systolicBounds,
+        diastolicBounds);
+    assertTrue(person.vitalSigns.get(VitalSign.SYSTOLIC_BLOOD_PRESSURE)
+        instanceof ContinuousBloodPressureGenerator);
+    assertTrue(person.vitalSigns.get(VitalSign.DIASTOLIC_BLOOD_PRESSURE)
+        instanceof ConstantValueGenerator);
+    assertEquals(true,
+        person.attributes.get(LifecycleModule.CONTINUOUS_BLOOD_PRESSURE_ATTRIBUTE));
+
+    person.vitalSigns.remove(VitalSign.DIASTOLIC_BLOOD_PRESSURE);
+    LifecycleModule.setContinuousBloodPressure(person, config, null, null, systolicBounds,
+        diastolicBounds);
+    double systolic = person.getVitalSign(VitalSign.SYSTOLIC_BLOOD_PRESSURE, time);
+    double diastolic = person.getVitalSign(VitalSign.DIASTOLIC_BLOOD_PRESSURE, time);
+    assertTrue(systolic + "/" + diastolic, systolic > diastolic);
+    assertEquals(Math.round((systolic + 2 * diastolic) / 3),
+        person.getVitalSign(VitalSign.MEAN_ARTERIAL_PRESSURE, time), 0);
   }
 
   @Test
