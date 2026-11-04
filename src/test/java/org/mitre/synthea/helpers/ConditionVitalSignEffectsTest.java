@@ -131,6 +131,40 @@ public class ConditionVitalSignEffectsTest {
     return offset * Math.exp(-hours / 12);
   }
 
+  /** A share of episodes act with the reversal offset, per vital sign, fixed for the episode. */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void reversalActsOnAShareOfEpisodes() {
+    Map<String, Object> config = new LinkedHashMap<>(config());
+    Map<String, Object> effects = new LinkedHashMap<>((Map<String, Object>) config.get("effects"));
+    Map<String, Object> sepsis = new LinkedHashMap<>((Map<String, Object>) effects.get("sepsis"));
+    sepsis.put("reversal", Map.of("heart_rate", Map.of("share", 0.25, "offset", -5)));
+    effects.put("sepsis", sepsis);
+    config.put("effects", effects);
+    ConditionVitalSignEffects heart = new ConditionVitalSignEffects(config, "heart_rate", false,
+        false, MedicationVitalSignEffects.drugClasses());
+    ConditionVitalSignEffects respiration = new ConditionVitalSignEffects(config,
+        "respiration_rate", false, false, MedicationVitalSignEffects.drugClasses());
+    double listed = ((Number) sepsis.get("heart_rate")).doubleValue();
+    double listedRespiration = ((Number) sepsis.get("respiration_rate")).doubleValue();
+    int reversed = 0;
+    int people = 2000;
+    long t0 = 1_000_000_000_000L;
+    for (int i = 0; i < people; i++) {
+      Person person = patient(i);
+      person.record.encounterStart(t0, EncounterType.EMERGENCY);
+      person.record.conditionStart(t0, "91302008");
+      double offset = heart.offset(person, t0);
+      boolean isReversed = heart.reversed(person, "sepsis", t0);
+      assertEquals(isReversed ? -5 : listed, offset, 1e-9);
+      assertEquals(offset, heart.offset(person, t0 + 3_600_000L), 1e-9);
+      // a vital sign without a reversal is not affected
+      assertEquals(listedRespiration, respiration.offset(person, t0), 1e-9);
+      reversed += isReversed ? 1 : 0;
+    }
+    assertEquals(0.25, (double) reversed / people, 0.03);
+  }
+
   @Test
   public void noOffsetWithoutListedConditions() {
     Person person = patient(1L);

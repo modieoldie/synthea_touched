@@ -39,6 +39,10 @@ import org.mitre.synthea.world.concepts.HealthRecord.Entry;
  * and log-SD severity_sd, a pure function of the person's seed, the effect and the onset time,
  * so heart and respiration rate share it.</p>
  *
+ * <p>Reversal (optional, per vital sign): a share of an effect's episodes act in another way, for
+ * example some sepsis episodes lower body temperature instead of raising it. Whether an episode
+ * does is also a pure function of the person's seed, the effect and the onset time.</p>
+ *
  * <p>The offset at a time depends only on the person's health record up to that time, so a
  * value does not change with when or how often it is asked for. Parameters are in
  * biometrics.yml (vital_sign_condition_effects).</p>
@@ -71,6 +75,10 @@ public class ConditionVitalSignEffects implements Serializable {
   /** Drug codes that treat each effect; null when its course starts at onset. */
   private final Set<String>[] treatmentCodes;
   private final long[] severitySalts;
+  /** Share of each effect's episodes that act in the other direction (null in old snapshots). */
+  private final double[] reversalShares;
+  /** The offset of a reversed episode, in place of the magnitude (null in old snapshots). */
+  private final double[] reversalOffsets;
 
   /**
    * Load the effects on one vital sign from biometrics.yml, with course and severity.
@@ -191,9 +199,11 @@ public class ConditionVitalSignEffects implements Serializable {
         checkArgument(previous == null || previous == index,
             "code " + code + " is in more than one effect");
       }
+      double[] reversal = reversal(effect, name, vitalSign);
       names.add(name);
       rows.add(new double[] {((Number) magnitude).doubleValue(), maxDuration,
-          course ? resolutionHours * MS_PER_HOUR : 0, course ? residual : 0});
+          course ? resolutionHours * MS_PER_HOUR : 0, course ? residual : 0,
+          reversal[0], reversal[1]});
       treatments.add(course ? treatment : null);
     }
     int n = names.size();
@@ -204,13 +214,31 @@ public class ConditionVitalSignEffects implements Serializable {
     this.residuals = new double[n];
     this.treatmentCodes = treatments.toArray(new Set[0]);
     this.severitySalts = new long[n];
+    this.reversalShares = new double[n];
+    this.reversalOffsets = new double[n];
     for (int i = 0; i < n; i++) {
       magnitudes[i] = rows.get(i)[0];
       maxDurationMs[i] = rows.get(i)[1];
       resolutionMs[i] = rows.get(i)[2];
       residuals[i] = rows.get(i)[3];
+      reversalShares[i] = rows.get(i)[4];
+      reversalOffsets[i] = rows.get(i)[5];
       severitySalts[i] = this.names[i].hashCode();
     }
+  }
+
+  /** {share, offset} of an effect's reversed episodes for one vital sign; {0, 0} for none. */
+  @SuppressWarnings("unchecked")
+  private static double[] reversal(Map<String, Object> effect, String name, String vitalSign) {
+    Object all = effect.get("reversal");
+    Object own = all instanceof Map ? ((Map<String, Object>) all).get(vitalSign) : null;
+    if (!(own instanceof Map)) {
+      return new double[] {0, 0};
+    }
+    Map<String, Object> reversal = (Map<String, Object>) own;
+    double share = number(reversal, "share");
+    checkArgument(share >= 0 && share <= 1, "reversal share of " + name + " must be in [0, 1]");
+    return new double[] {share, number(reversal, "offset")};
   }
 
   /** resolution_hours of an effect for one vital sign: a number, or a map by vital sign. */
@@ -260,7 +288,8 @@ public class ConditionVitalSignEffects implements Serializable {
 
   double offset(Person person, VitalSignRecordIndex index, long time) {
     double[] strength = null;
-    long seed = severitySd > 0
+    double[] magnitude = null;
+    long seed = severitySd > 0 || hasReversal()
         ? StatelessRandom.mix(person.getSeed() ^ StatelessRandom.mix(SEVERITY_SALT)) : 0;
     for (VitalSignRecordIndex.Item item : index.conditions()) {
       Entry condition = item.entry;
@@ -272,9 +301,14 @@ public class ConditionVitalSignEffects implements Serializable {
       if (a > 0) {
         if (strength == null) {
           strength = new double[magnitudes.length];
+          magnitude = magnitudes.clone();
         }
-        strength[effect] = Math.max(strength[effect],
-            a * severity(seed, effect, condition.start));
+        double s = a * severity(seed, effect, condition.start);
+        if (s > strength[effect]) {
+          // the strongest episode of the effect decides its direction too
+          strength[effect] = s;
+          magnitude[effect] = episodeMagnitude(seed, effect, condition.start);
+        }
       }
     }
     if (strength == null) {
@@ -282,7 +316,7 @@ public class ConditionVitalSignEffects implements Serializable {
     }
     double[] contributions = new double[magnitudes.length];
     for (int i = 0; i < magnitudes.length; i++) {
-      contributions[i] = magnitudes[i] * strength[i];
+      contributions[i] = magnitude[i] * strength[i];
     }
     // largest effect first, whatever its sign
     double[] sorted = Arrays.stream(contributions).boxed()
@@ -348,6 +382,42 @@ public class ConditionVitalSignEffects implements Serializable {
       }
     }
     return Math.max(first, onset);
+  }
+
+  private boolean hasReversal() {
+    if (reversalShares != null) {
+      for (double share : reversalShares) {
+        if (share > 0) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** The offset of an episode at full strength: reversed for a share of the episodes. */
+  private double episodeMagnitude(long seed, int effect, long onset) {
+    if (reversalShares == null || reversalShares[effect] == 0) {
+      return magnitudes[effect];
+    }
+    // salted differently from the severity draw of the same episode
+    double u = StatelessRandom.uniform(seed, ~severitySalts[effect], onset);
+    return u < reversalShares[effect] ? reversalOffsets[effect] : magnitudes[effect];
+  }
+
+  /**
+   * Whether one episode of an effect is reversed.
+   *
+   * @param person the person
+   * @param effect the effect's name in biometrics.yml
+   * @param onset the start of the episode's condition
+   * @return true if the episode acts with the reversal offset
+   */
+  public boolean reversed(Person person, String effect, long onset) {
+    int index = Arrays.asList(names).indexOf(effect);
+    checkArgument(index >= 0, "no effect " + effect + " on this vital sign");
+    long seed = StatelessRandom.mix(person.getSeed() ^ StatelessRandom.mix(SEVERITY_SALT));
+    return episodeMagnitude(seed, index, onset) != magnitudes[index];
   }
 
   /** The episode's severity factor (1 without severity). */
