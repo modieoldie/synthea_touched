@@ -263,6 +263,42 @@
       ]
     },
     "Take_Temperature_High": {
+      "type": "Simple",
+      "conditional_transition": [
+        {
+          "transition": "Take_Temperature_High_Continuous",
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "continuous_body_temperature",
+            "operator": "==",
+            "value": true
+          }
+        },
+        {
+          "transition": "Take_Temperature_High_Stock"
+        }
+      ]
+    },
+    "Take_Temperature_High_Continuous": {
+      "type": "Observation",
+      "category": "vital-signs",
+      "unit": "Cel",
+      "codes": [
+        {
+          "system": "LOINC",
+          "code": "8310-5",
+          "display": "Body temperature"
+        },
+        {
+          "system": "LOINC",
+          "code": "8331-1",
+          "display": "Oral temperature"
+        }
+      ],
+      "vital_sign": "Body Temperature",
+      "direct_transition": "Determine_if_Bacterial"
+    },
+    "Take_Temperature_High_Stock": {
       "type": "Observation",
       "category": "vital-signs",
       "range": {
@@ -288,6 +324,42 @@
       "direct_transition": "Determine_if_Bacterial"
     },
     "Take_Temperature_Low": {
+      "type": "Simple",
+      "conditional_transition": [
+        {
+          "transition": "Take_Temperature_Low_Continuous",
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "continuous_body_temperature",
+            "operator": "==",
+            "value": true
+          }
+        },
+        {
+          "transition": "Take_Temperature_Low_Stock"
+        }
+      ]
+    },
+    "Take_Temperature_Low_Continuous": {
+      "type": "Observation",
+      "category": "vital-signs",
+      "unit": "Cel",
+      "codes": [
+        {
+          "system": "LOINC",
+          "code": "8310-5",
+          "display": "Body temperature"
+        },
+        {
+          "system": "LOINC",
+          "code": "8331-1",
+          "display": "Oral temperature"
+        }
+      ],
+      "vital_sign": "Body Temperature",
+      "direct_transition": "Determine_if_Bacterial"
+    },
+    "Take_Temperature_Low_Stock": {
       "type": "Observation",
       "category": "vital-signs",
       "range": {

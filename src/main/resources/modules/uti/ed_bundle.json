@@ -808,6 +808,44 @@
       ]
     },
     "Take_Temperature_4_5": {
+      "type": "Simple",
+      "conditional_transition": [
+        {
+          "transition": "Take_Temperature_4_5_Continuous",
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "continuous_body_temperature",
+            "operator": "==",
+            "value": true
+          }
+        },
+        {
+          "transition": "Take_Temperature_4_5_Stock"
+        }
+      ]
+    },
+    "Take_Temperature_4_5_Continuous": {
+      "type": "Observation",
+      "category": "vital-signs",
+      "unit": "Cel",
+      "codes": [
+        {
+          "system": "LOINC",
+          "code": "8310-5",
+          "display": "Body temperature",
+          "value_set": ""
+        },
+        {
+          "system": "LOINC",
+          "code": "8331-1",
+          "display": "Oral temperature",
+          "value_set": ""
+        }
+      ],
+      "vital_sign": "Body Temperature",
+      "direct_transition": "History and Physical Exam"
+    },
+    "Take_Temperature_4_5_Stock": {
       "type": "Observation",
       "category": "vital-signs",
       "range": {
@@ -835,6 +873,44 @@
       "direct_transition": "History and Physical Exam"
     },
     "Take_Temperature_3": {
+      "type": "Simple",
+      "conditional_transition": [
+        {
+          "transition": "Take_Temperature_3_Continuous",
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "continuous_body_temperature",
+            "operator": "==",
+            "value": true
+          }
+        },
+        {
+          "transition": "Take_Temperature_3_Stock"
+        }
+      ]
+    },
+    "Take_Temperature_3_Continuous": {
+      "type": "Observation",
+      "category": "vital-signs",
+      "unit": "Cel",
+      "codes": [
+        {
+          "system": "LOINC",
+          "code": "8310-5",
+          "display": "Body temperature",
+          "value_set": ""
+        },
+        {
+          "system": "LOINC",
+          "code": "8331-1",
+          "display": "Oral temperature",
+          "value_set": ""
+        }
+      ],
+      "vital_sign": "Body Temperature",
+      "direct_transition": "History and Physical Exam"
+    },
+    "Take_Temperature_3_Stock": {
       "type": "Observation",
       "category": "vital-signs",
       "range": {
@@ -862,6 +938,44 @@
       "direct_transition": "History and Physical Exam"
     },
     "Take_Temperature_1": {
+      "type": "Simple",
+      "conditional_transition": [
+        {
+          "transition": "Take_Temperature_1_Continuous",
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "continuous_body_temperature",
+            "operator": "==",
+            "value": true
+          }
+        },
+        {
+          "transition": "Take_Temperature_1_Stock"
+        }
+      ]
+    },
+    "Take_Temperature_1_Continuous": {
+      "type": "Observation",
+      "category": "vital-signs",
+      "unit": "Cel",
+      "codes": [
+        {
+          "system": "LOINC",
+          "code": "8310-5",
+          "display": "Body temperature",
+          "value_set": ""
+        },
+        {
+          "system": "LOINC",
+          "code": "8331-1",
+          "display": "Oral temperature",
+          "value_set": ""
+        }
+      ],
+      "vital_sign": "Body Temperature",
+      "direct_transition": "History and Physical Exam"
+    },
+    "Take_Temperature_1_Stock": {
       "type": "Observation",
       "category": "vital-signs",
       "range": {
@@ -889,6 +1003,44 @@
       "direct_transition": "History and Physical Exam"
     },
     "Take_Temperature_2": {
+      "type": "Simple",
+      "conditional_transition": [
+        {
+          "transition": "Take_Temperature_2_Continuous",
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "continuous_body_temperature",
+            "operator": "==",
+            "value": true
+          }
+        },
+        {
+          "transition": "Take_Temperature_2_Stock"
+        }
+      ]
+    },
+    "Take_Temperature_2_Continuous": {
+      "type": "Observation",
+      "category": "vital-signs",
+      "unit": "Cel",
+      "codes": [
+        {
+          "system": "LOINC",
+          "code": "8310-5",
+          "display": "Body temperature",
+          "value_set": ""
+        },
+        {
+          "system": "LOINC",
+          "code": "8331-1",
+          "display": "Oral temperature",
+          "value_set": ""
+        }
+      ],
+      "vital_sign": "Body Temperature",
+      "direct_transition": "History and Physical Exam"
+    },
+    "Take_Temperature_2_Stock": {
       "type": "Observation",
       "category": "vital-signs",
       "range": {

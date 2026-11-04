@@ -12,6 +12,42 @@
       "type": "Terminal"
     },
     "Temperature": {
+      "type": "Simple",
+      "conditional_transition": [
+        {
+          "transition": "Temperature_Continuous",
+          "condition": {
+            "condition_type": "Attribute",
+            "attribute": "continuous_body_temperature",
+            "operator": "==",
+            "value": true
+          }
+        },
+        {
+          "transition": "Temperature_Stock"
+        }
+      ]
+    },
+    "Temperature_Continuous": {
+      "type": "Observation",
+      "category": "vital-signs",
+      "unit": "Cel",
+      "codes": [
+        {
+          "system": "LOINC",
+          "code": "8310-5",
+          "display": "Body temperature"
+        },
+        {
+          "system": "LOINC",
+          "code": "8331-1",
+          "display": "Oral temperature"
+        }
+      ],
+      "vital_sign": "Body Temperature",
+      "direct_transition": "Respiratory Rate"
+    },
+    "Temperature_Stock": {
       "type": "Observation",
       "category": "vital-signs",
       "unit": "Cel",
