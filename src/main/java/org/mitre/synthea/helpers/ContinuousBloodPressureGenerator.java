@@ -2,11 +2,8 @@ package org.mitre.synthea.helpers;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
-import java.time.Instant;
 import java.time.ZoneId;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -15,10 +12,7 @@ import org.mitre.synthea.helpers.ContinuousVitalSignGenerator.Deviation;
 import org.mitre.synthea.modules.BloodPressureValueGenerator;
 import org.mitre.synthea.modules.BloodPressureValueGenerator.SysDias;
 import org.mitre.synthea.world.agents.Person;
-import org.mitre.synthea.world.concepts.HealthRecord.Encounter;
-import org.mitre.synthea.world.concepts.HealthRecord.EncounterType;
 import org.mitre.synthea.world.concepts.VitalSign;
-import org.mitre.synthea.world.geography.Location;
 
 /**
  * A ValueGenerator for systolic or diastolic blood pressure that varies continuously in time.
@@ -40,31 +34,12 @@ import org.mitre.synthea.world.geography.Location;
  */
 public class ContinuousBloodPressureGenerator extends ValueGenerator {
   private static final long serialVersionUID = 1L;
-  private static final long MS_PER_HOUR = 3_600_000L;
-  private static final long MS_PER_DAY = 24 * MS_PER_HOUR;
   /** Measurement noise is drawn once per minute. */
   private static final long NOISE_BUCKET_MS = 60_000L;
   /** Softness (mmHg) of the cap on the diastolic level. */
   private static final double LEVEL_SOFTNESS = 3;
   /** Softness (mmHg) of the cap on the diastolic reading. */
   private static final double READING_SOFTNESS = 2;
-  /** Encounters spent sleeping in a bed: the night dip applies during them. */
-  private static final String[] STAY_CLASSES = {EncounterType.INPATIENT.toString(),
-      EncounterType.SNF.toString(), EncounterType.HOSPICE.toString()};
-  /** How many of the person's latest encounters are searched for a current stay. */
-  private static final int STAY_SEARCH = 20;
-  /** Time zone of each zone name in geography/timezones.csv. */
-  private static final Map<String, String> ZONES = new HashMap<>();
-  private static final String DEFAULT_ZONE = "America/New_York";
-
-  static {
-    ZONES.put("Eastern Standard Time", "America/New_York");
-    ZONES.put("Central Standard Time", "America/Chicago");
-    ZONES.put("Mountain Standard Time", "America/Denver");
-    ZONES.put("Pacific Standard Time", "America/Los_Angeles");
-    ZONES.put("Alaska Standard Time", "America/Anchorage");
-    ZONES.put("Hawaii-Aleutian Standard Time", "Pacific/Honolulu");
-  }
 
   /** Distinguishes the person's blood pressure seed from their other stateless seeds. */
   private static final long SEED_SALT = 0x62705f73L;
@@ -275,37 +250,10 @@ public class ContinuousBloodPressureGenerator extends ValueGenerator {
    * dip_half_width_hours either side of it. 0 when the person is not in a stay.
    */
   double nightShare(long time) {
-    if (dip == 0 || !inStay(time)) {
+    if (dip == 0 || !VitalSignTime.inStay(person, time)) {
       return 0;
     }
-    double distance = Math.abs(localHour(time) - troughHour) % 24;
-    distance = Math.min(distance, 24 - distance);
-    if (distance >= halfWidthHours) {
-      return 0;
-    }
-    return 0.5 * (1 + Math.cos(Math.PI * distance / halfWidthHours));
-  }
-
-  /** Whether the time falls in an inpatient, nursing facility or hospice encounter. */
-  private boolean inStay(long time) {
-    List<Encounter> encounters = person.record.encounters;
-    for (int i = encounters.size() - 1, n = 0; i >= 0 && n < STAY_SEARCH; i--, n++) {
-      Encounter e = encounters.get(i);
-      // an encounter's stop is provisional until it has ended
-      if (e.start <= time && (!e.ended || time < e.stop) && isStayClass(e.type)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private static boolean isStayClass(String type) {
-    for (String stay : STAY_CLASSES) {
-      if (stay.equalsIgnoreCase(type)) {
-        return true;
-      }
-    }
-    return false;
+    return VitalSignTime.raisedCosine(localHour(time), troughHour, halfWidthHours);
   }
 
   /** Hour of the day (0 to 24) in the time zone of the person's state. */
@@ -315,14 +263,12 @@ public class ContinuousBloodPressureGenerator extends ValueGenerator {
       zoneState = state;
       zone = zoneOf(state);
     }
-    long offsetMs = 1000L * zone.getRules().getOffset(Instant.ofEpochMilli(time)).getTotalSeconds();
-    return Math.floorMod(time + offsetMs, MS_PER_DAY) / (double) MS_PER_HOUR;
+    return VitalSignTime.localHour(zone, time);
   }
 
   /** The time zone of a state, America/New_York if it is unknown. */
   static ZoneId zoneOf(String state) {
-    String name = state == null ? null : Location.getTimezoneByState(state);
-    return ZoneId.of(ZONES.getOrDefault(name, DEFAULT_ZONE));
+    return VitalSignTime.zoneOf(state);
   }
 
   private VitalSignRecordIndex newIndex() {
