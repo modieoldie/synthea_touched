@@ -273,10 +273,7 @@ public class MedicationVitalSignEffectsTest {
     return medications;
   }
 
-  /**
-   * vital_sign_drug_classes.csv lists exactly the drugs of its classes that modules prescribe:
-   * a missing code would silently have no effect, a stray one could never match.
-   */
+  /** vital_sign_drug_classes.csv lists exactly the drugs of its classes that modules prescribe. */
   @Test
   public void drugClassesMatchTheModules() throws Exception {
     Map<String, String> expected = new TreeMap<>();

@@ -19,12 +19,10 @@ import org.mitre.synthea.world.concepts.HealthRecord;
  * Generate realistic blood pressure vital signs,
  * with impacts from select medications.
  *
- * <p>The resting level (baseline, medications, lifestyle) is also used by
- * ContinuousBloodPressureGenerator, which draws its random numbers statelessly through
- * {@link Draws}.</p>
+ * <p>ContinuousBloodPressureGenerator reuses the resting level through {@link Draws}.</p>
  */
 public class BloodPressureValueGenerator extends ValueGenerator {
-  /** The value Java computed for this class before it was pinned, so snapshots still load. */
+  /** Pinned to the value Java computed before, so existing snapshots still load. */
   private static final long serialVersionUID = -4463697955745176250L;
 
   /**
@@ -96,18 +94,12 @@ public class BloodPressureValueGenerator extends ValueGenerator {
   /** Cycle time for blood pressure variation in milliseconds. */
   private static final long CYCLE_TIME = Utilities.convertTime("hours", 12);
 
-  /**
-   * Where the resting level's random numbers come from: each is drawn once per person and key
-   * (a baseline, a drug's impact, a care plan's adherence).
-   */
+  /** Source of the resting level's random numbers, each drawn once per person and key. */
   public interface Draws {
     /**
      * A random number between low and high (low may be the larger one).
      *
      * @param key what the number is for, the same for every draw of the same thing
-     * @param low one end of the range
-     * @param high the other end of the range
-     * @return the number
      */
     double uniform(String key, double low, double high);
 
@@ -176,14 +168,10 @@ public class BloodPressureValueGenerator extends ValueGenerator {
   }
 
   /**
-   * The resting blood pressure: the baseline for the person's hypertension status plus the
-   * impacts of medications and lifestyle changes, before daily variation.
+   * The baseline for the person's hypertension status plus the impacts of medications and
+   * lifestyle changes, before daily variation.
    *
-   * @param person The person.
-   * @param sysDias Systolic or diastolic.
-   * @param time The time.
    * @param draws Where the random numbers come from.
-   * @return The resting blood pressure.
    */
   public static double restingLevel(Person person, SysDias sysDias, long time, Draws draws) {
     double baseline = calculateBaseline(person, sysDias, draws);

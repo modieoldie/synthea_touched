@@ -48,8 +48,7 @@ import org.mitre.synthea.world.geography.Location;
  * LifecycleModule is responsible for managing the lifecycle of a Person.
  */
 public final class LifecycleModule extends Module {
-  /** Pinned to the value computed before it was declared, so existing population
-   * snapshots (-u / -i) still load. */
+  /** Pinned to the value computed before it was declared, so existing snapshots still load. */
   private static final long serialVersionUID = -6014268350836185324L;
   private static final Map<GrowthChart.ChartType, GrowthChart> growthChart =
       GrowthChart.loadCharts();
@@ -731,8 +730,6 @@ public final class LifecycleModule extends Module {
       BiometricsConfig.doubles("cardiovascular.heart_rate.normal");
   private static final double[] RESPIRATION_RATE_NORMAL =
       BiometricsConfig.doubles("respiratory.respiration_rate.normal");
-  /** "trending" (default): new random trend every timestep; "continuous": see
-   * ContinuousVitalSignGenerator, independent of generate.timestep. */
   private static final boolean CONTINUOUS_HEART_AND_RESPIRATION_RATE = "continuous".equals(
       Config.get("lifecycle.vitals.heart_and_respiration_rate.model", "trending"));
   private static final Map<String, Object> HEART_RATE_CONTINUOUS =
@@ -741,17 +738,13 @@ public final class LifecycleModule extends Module {
   private static final Map<String, Object> RESPIRATION_RATE_CONTINUOUS =
       CONTINUOUS_HEART_AND_RESPIRATION_RATE
       ? ContinuousVitalSignGenerator.loadConfig("respiratory.respiration_rate.continuous") : null;
-  /** Continuous model only: conditions such as sepsis raise heart and respiration rate. */
   private static final boolean CONDITION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE =
       CONTINUOUS_HEART_AND_RESPIRATION_RATE && Config.getAsBoolean(
           "lifecycle.vitals.heart_and_respiration_rate.condition_effects", true);
-  /** Condition effects only: acute effects resolve during the condition, faster once treated. */
   private static final boolean CONDITION_COURSE = Config.getAsBoolean(
       "lifecycle.vitals.heart_and_respiration_rate.condition_course", true);
-  /** Condition effects only: each episode draws a severity factor. */
   private static final boolean CONDITION_SEVERITY = Config.getAsBoolean(
       "lifecycle.vitals.heart_and_respiration_rate.condition_severity", true);
-  /** Continuous model only: medications such as beta blockers lower heart rate. */
   private static final boolean MEDICATION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE =
       CONTINUOUS_HEART_AND_RESPIRATION_RATE && Config.getAsBoolean(
           "lifecycle.vitals.heart_and_respiration_rate.medication_effects", true);
@@ -766,18 +759,13 @@ public final class LifecycleModule extends Module {
           CONDITION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE, CONDITION_COURSE, CONDITION_SEVERITY,
           MEDICATION_EFFECTS_ON_HEART_AND_RESPIRATION_RATE)
       : null;
-  /** "stock" (default): BloodPressureValueGenerator; "continuous": see
-   * ContinuousBloodPressureGenerator. */
   private static final boolean CONTINUOUS_BLOOD_PRESSURE = "continuous".equals(
       Config.get("lifecycle.vitals.blood_pressure.model", "stock"));
-  /** Set to true while the continuous blood pressure model is on, for modules that record blood
-   * pressure (sepsis.json): they then read it from the generator instead of typing in a range. */
+  /** True while the model is on; modules then read blood pressure from the generator. */
   public static final String CONTINUOUS_BLOOD_PRESSURE_ATTRIBUTE = "continuous_blood_pressure";
   private static final Map<String, Object> BLOOD_PRESSURE_CONTINUOUS = CONTINUOUS_BLOOD_PRESSURE
       ? ContinuousVitalSignGenerator.loadConfig("metabolic.blood_pressure.continuous") : null;
-  /** Continuous blood pressure only: conditions such as septic shock lower blood pressure. The
-   * course and severity settings are those of heart and respiration rate, so one episode's
-   * severity is shared by all four. */
+  /** Course and severity settings as for heart rate, so all four share an episode's severity. */
   private static final boolean CONDITION_EFFECTS_ON_BLOOD_PRESSURE = CONTINUOUS_BLOOD_PRESSURE
       && Config.getAsBoolean("lifecycle.vitals.blood_pressure.condition_effects", true);
   private static final ConditionVitalSignEffects SYSTOLIC_EFFECTS =
@@ -790,19 +778,15 @@ public final class LifecycleModule extends Module {
       ? VitalSignEffects.loadBounds("systolic_blood_pressure") : null;
   private static final double[] DIASTOLIC_BOUNDS = CONTINUOUS_BLOOD_PRESSURE
       ? VitalSignEffects.loadBounds("diastolic_blood_pressure") : null;
-  /** "stock" (default): no body temperature vital sign, modules type in their own range;
-   * "continuous": see ContinuousBodyTemperatureGenerator. */
   private static final boolean CONTINUOUS_BODY_TEMPERATURE = "continuous".equals(
       Config.get("lifecycle.vitals.body_temperature.model", "stock"));
-  /** Set to true while the continuous body temperature model is on, for modules that record
-   * temperature: they then read it from the generator instead of typing in a range. */
+  /** True while the model is on; modules then read temperature from the generator. */
   public static final String CONTINUOUS_BODY_TEMPERATURE_ATTRIBUTE = "continuous_body_temperature";
   private static final Map<String, Object> BODY_TEMPERATURE_CONTINUOUS =
       CONTINUOUS_BODY_TEMPERATURE
       ? ContinuousVitalSignGenerator.loadConfig("cardiovascular.body_temperature.continuous")
       : null;
-  /** Continuous body temperature only: conditions and antipyretics; course and severity as for
-   * heart rate, so one episode's severity is shared by all of them. */
+  /** Course and severity settings as for heart rate, so they share an episode's severity. */
   private static final VitalSignEffects BODY_TEMPERATURE_EFFECTS = CONTINUOUS_BODY_TEMPERATURE
       ? VitalSignEffects.load("body_temperature",
           Config.getAsBoolean("lifecycle.vitals.body_temperature.condition_effects", true),
@@ -811,12 +795,9 @@ public final class LifecycleModule extends Module {
       : null;
   private static final double[] BODY_TEMPERATURE_BOUNDS = CONTINUOUS_BODY_TEMPERATURE
       ? VitalSignEffects.loadBounds("body_temperature") : null;
-  /** "stock" (default): a uniform draw each timestep, hypoxemic for anyone with heart failure;
-   * "continuous": see ContinuousOxygenSaturationGenerator. */
   private static final boolean CONTINUOUS_OXYGEN_SATURATION = "continuous".equals(
       Config.get("lifecycle.vitals.oxygen_saturation.model", "stock"));
-  /** Set to true while the continuous oxygen saturation model is on, for modules that record the
-   * inhaled oxygen concentration along with oxygen saturation. */
+  /** True while the model is on; modules then also record the inhaled oxygen concentration. */
   public static final String CONTINUOUS_OXYGEN_SATURATION_ATTRIBUTE =
       "continuous_oxygen_saturation";
   private static final Map<String, Object> OXYGEN_SATURATION_CONTINUOUS =
@@ -996,8 +977,7 @@ public final class LifecycleModule extends Module {
     }
 
     if (CONTINUOUS_OXYGEN_SATURATION) {
-      // replaces the stock value set above; that draw stays, so the person's random numbers stay
-      // where they would be, and only what modules decide from the value can differ
+      // replaces the stock value set above; that draw stays, so later random numbers do not shift
       setContinuousOxygenSaturation(person, OXYGEN_SATURATION_CONTINUOUS,
           OXYGEN_SATURATION_EFFECTS, OXYGEN_SATURATION_BOUNDS);
     }
@@ -1024,12 +1004,8 @@ public final class LifecycleModule extends Module {
   }
 
   /**
-   * Give the person a ContinuousVitalSignGenerator for this vital sign with the current
-   * parameters. It replaces a missing or lifecycle trending generator, so a value a module set
-   * explicitly (VitalSign state) is left alone, and any ContinuousVitalSignGenerator: one loaded
-   * from a population snapshot may have been built with older parameters. The generator holds
-   * no state that changes over time, so a new one gives the same values as the old one would
-   * with the same parameters.
+   * Give the person a ContinuousVitalSignGenerator with the current parameters, replacing a
+   * missing, trending or older continuous generator. A value a module set is left alone.
    */
   static void setContinuousVitalSign(Person person, VitalSign vitalSign,
       double[] range, Map<String, Object> config, VitalSignEffects effects) {
@@ -1042,10 +1018,8 @@ public final class LifecycleModule extends Module {
   }
 
   /**
-   * Give the person ContinuousBloodPressureGenerators with the current parameters, replacing a
-   * missing, stock or continuous blood pressure generator (as for heart rate, a value a module
-   * set explicitly is left alone), add mean arterial pressure, and mark the person for modules
-   * that record blood pressure.
+   * Give the person ContinuousBloodPressureGenerators with the current parameters, add mean
+   * arterial pressure and mark the person for modules. A value a module set is left alone.
    */
   static void setContinuousBloodPressure(Person person, Map<String, Object> config,
       ConditionVitalSignEffects systolicEffects, ConditionVitalSignEffects diastolicEffects,
@@ -1068,8 +1042,8 @@ public final class LifecycleModule extends Module {
   }
 
   /**
-   * Give the person a ContinuousBodyTemperatureGenerator with the current parameters, and mark the
-   * person for modules that record temperature. A value a module set explicitly is left alone.
+   * Give the person a ContinuousBodyTemperatureGenerator with the current parameters and mark the
+   * person for modules. A value a module set is left alone.
    */
   static void setContinuousBodyTemperature(Person person, Map<String, Object> config,
       VitalSignEffects effects, double[] bounds) {
@@ -1082,10 +1056,8 @@ public final class LifecycleModule extends Module {
   }
 
   /**
-   * Give the person a ContinuousOxygenSaturationGenerator with the current parameters, add the
-   * inhaled oxygen concentration, and mark the person for modules that record it. Like the stock
-   * value, this replaces whatever is there each timestep: the COVID-19 modules set a value that
-   * lasts until then.
+   * Give the person a ContinuousOxygenSaturationGenerator, add the inhaled oxygen concentration and
+   * mark the person for modules. Like the stock value, it replaces a module's value each timestep.
    */
   static void setContinuousOxygenSaturation(Person person, Map<String, Object> config,
       ConditionVitalSignEffects effects, double[] bounds) {

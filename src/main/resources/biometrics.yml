@@ -18,32 +18,22 @@ metabolic:
     hypertensive:
       systolic: [140,160,200] # mmHg
       diastolic: [90,120] # mmHg
-    # used when lifecycle.vitals.blood_pressure.model = continuous (ContinuousBloodPressureGenerator).
-    # The resting level is the stock one (the ranges above, hypertension drugs, lifestyle care plan).
-    # slow/fast: mean-reverting deviations (time constant; SD in mmHg), measurement_sd: per-minute noise.
-    # Each is shared with the other value with this correlation. The SDs add up to the stock
-    # generator's variation (systolic 8, diastolic 5), so readings outside stays have the same spread.
-    # nocturnal_dip: each person's dip at the trough, as a share of the level, drawn once (normal with
-    # mean and sd, clipped to [0, max]); it applies during stays (inpatient, SNF, hospice), as a raised
-    # cosine around dip_trough_hour (local time) that is 0 beyond dip_half_width_hours. Normal dipping is
-    # 10-20% of the daytime level (O'Brien et al., Lancet 1988) and is blunted in many inpatients.
-    # max_diastolic_share: the diastolic level is kept softly below this share of the systolic level.
-    # The stock ranges are drawn separately, so many people get a narrow pulse pressure (< 25% of
-    # systolic, rare in adults: diastolic is about 0.6 of systolic on average); with the level at most
-    # 0.7, readings narrower than 25% come only from short-term variation. Each diastolic reading is
-    # also kept at least min_pulse_pressure (mmHg) below the systolic one.
+    # lifecycle.vitals.blood_pressure.model = continuous (ContinuousBloodPressureGenerator).
+    # slow/fast: mean-reverting deviations (time constant; SD in mmHg); measurement_sd: per-minute noise.
+    # The SDs add up to the stock variation (systolic 8, diastolic 5).
     # Placeholder values, not yet calibrated against observed inpatient data.
     continuous:
       slow_tau_hours: 48
       fast_tau_hours: 2
-      correlation: 0.7
+      correlation: 0.7 # between systolic and diastolic
       systolic: {slow_sd: 5.0, fast_sd: 5.0, measurement_sd: 3.7}
       diastolic: {slow_sd: 3.0, fast_sd: 3.0, measurement_sd: 2.6}
+      # Per-person share of the level at the trough, during stays. Normally 10-20% (O'Brien et al., Lancet 1988).
       nocturnal_dip: {mean: 0.10, sd: 0.05, max: 0.2}
       dip_trough_hour: 3
       dip_half_width_hours: 6
-      max_diastolic_share: 0.7
-      min_pulse_pressure: 10
+      max_diastolic_share: 0.7 # soft cap on the diastolic level; stock ranges often give a narrow pulse pressure
+      min_pulse_pressure: 10 # mmHg each diastolic reading stays below systolic
   lipid_panel: #https://www.nlm.nih.gov/medlineplus/magazine/issues/summer12/articles/summer12pg6-7.html
     cholesterol:   [160,200,239,259,279,300] # mg/dL
     triglycerides: [100,150,199,499,550,600] # mg/dL
@@ -78,15 +68,12 @@ metabolic:
       severe_kidney_damage: [15,29] # ml/min/BSA
       esrd: [1,15] # ml/min/BSA
 cardiovascular:
-  # used when lifecycle.vitals.body_temperature.model = continuous (ContinuousBodyTemperatureGenerator), degrees
-  # Celsius. Afebrile outpatient readings average 36.6 with 95% in 35.7-37.3 (35,488 patients, mean age 53, 64%
-  # women; Obermeyer et al., BMJ 2017), so the SDs add up to 0.4 and baseline_mean + female_offset * 0.64 + the
-  # rhythm at clinic_hour gives 36.6. How that spread divides among the SDs is a placeholder. Temperature falls
-  # with age and women run a little higher: the directions are published, the sizes placeholders.
-  # The rhythm is a cosine of rhythm_amplitude, per person (normal with rhythm_amplitude_sd), lowest around 06:00
-  # and highest 16:00-18:00, about 0.5 from trough to peak (Mackowiak et al., JAMA 1992). It follows the local hour
-  # during stays (inpatient, SNF, hospice); elsewhere it is read at clinic_hour, because a person's timestep events
-  # all fall at one time of day.
+  # lifecycle.vitals.body_temperature.model = continuous (ContinuousBodyTemperatureGenerator), degrees C.
+  # Afebrile outpatients average 36.6, 95% in 35.7-37.3 (mean age 53, 64% women; Obermeyer et al., BMJ 2017),
+  # so the SDs add up to 0.4 and baseline_mean + female_offset * 0.64 + the rhythm at clinic_hour gives 36.6.
+  # The rhythm is lowest around 06:00, highest 16:00-18:00, about 0.5 apart (Mackowiak et al., JAMA 1992). It
+  # follows the local hour during stays; elsewhere it is read at clinic_hour, as a person's timestep events all
+  # fall at one time of day. Placeholders: the split among the SDs, female_offset, age_slope_per_decade.
   body_temperature:
     continuous:
       baseline_mean: 36.52
@@ -106,23 +93,10 @@ cardiovascular:
   oxygen_saturation:
     normal: [90,99] # https://www.mayoclinic.org/symptoms/hypoxemia/basics/definition/sym-20050930
     hypoxemia: [75,89] # https://en.wikipedia.org/wiki/Oxygen_saturation_(medicine)#Medical_significance
-    # used when lifecycle.vitals.oxygen_saturation.model = continuous (ContinuousOxygenSaturationGenerator).
-    # deficit below 100 = (personal deficit + age + conditions) x slow x fast x night; healthy awake adults read
-    # about 95-99 and fall a little with age (Apple Heart and Movement Study, npj Digit Med 2023). The personal
-    # deficit is log-normal, the deviations are log-normal factors (a sicker patient swings more), measurement_sd is
-    # per-minute noise. night_factor: the deficit grows by this share at the trough during stays, a raised cosine
-    # around night_trough_hour.
-    # oxygen: in an inpatient, nursing, hospice or emergency encounter, once the room-air level (without the fast
-    # deviation, so a patient does not flicker on and off) is below start_below (guidelines start oxygen below 90 in
-    # acute heart failure), efficacy of the gap to target is closed over ramp_hours from the start of the encounter,
-    # so the first reading is on room air. A lift below min_lift counts as none, so nobody is on a trickle of oxygen
-    # (2 L/min by nasal cannula, about 28%, is a typical start). The oxygen concentration is 21 + fio2_per_point * lift +
-    # fio2_per_point_squared * lift^2 (placeholder: about 28% for a lift of 4 points, 40% for 8).
-    # acute_encounter: an emergency or inpatient encounter whose reason is one of these chronic conditions (Synthea
-    # records no separate exacerbation) adds this deficit: strongest at arrival, falling with resolution_hours to
-    # residual, scaled by a severity drawn per encounter. An acute MI cohort read 95 / 92 / 85 by Killip class
-    # 1 / 2 / 3 (Rev Esp Cardiol 2012); a typical heart failure admission here arrives near 92.
-    # Other values are placeholders, not yet calibrated against observed inpatient data.
+    # lifecycle.vitals.oxygen_saturation.model = continuous (ContinuousOxygenSaturationGenerator).
+    # Deficit below 100 = (personal + age + conditions) x slow x fast x night. Healthy awake adults read about
+    # 95-99, a little lower with age (Apple Heart and Movement Study, npj Digit Med 2023).
+    # Placeholder values unless sourced, not yet calibrated against observed inpatient data.
     continuous:
       baseline_deficit_median: 2.3
       baseline_deficit_log_sd: 0.3
@@ -133,11 +107,15 @@ cardiovascular:
       fast_log_sd: 0.2
       fast_tau_hours: 2
       measurement_sd: 0.7
-      night_factor: 0.4
+      night_factor: 0.4 # share the deficit grows by at the trough, during stays
       night_trough_hour: 3
       night_half_width_hours: 6
       combination_weight: 0.5
       oxygen:
+        # In an inpatient, nursing, hospice or emergency encounter, once the room-air level is below start_below
+        # (guidelines: below 90 in acute heart failure), efficacy of the gap to target closes over ramp_hours.
+        # A lift below min_lift counts as none (2 L/min, about 28%, is a typical start).
+        # FiO2 = 21 + fio2_per_point * lift + fio2_per_point_squared * lift^2 (28% at 4 points, 40% at 8).
         start_below: 90
         softness: 0.5
         target: 94
@@ -147,6 +125,8 @@ cardiovascular:
         fio2_per_point: 1.0
         fio2_per_point_squared: 0.15
       acute_encounter:
+        # An emergency or inpatient encounter for one of these adds this deficit, falling with resolution_hours to
+        # residual. An acute MI cohort read 95 / 92 / 85 by Killip class 1 / 2 / 3 (Rev Esp Cardiol 2012).
         # Chronic congestive heart failure; Heart failure; Chronic obstructive bronchitis; Pulmonary emphysema
         codes: ['88805009', '84114007', '185086009', '87433001']
         deficit: 5
@@ -170,9 +150,8 @@ cardiovascular:
   #   death: 0.00069
   heart_rate: # https://www.columbiadoctors.org/condition/vital-signs-body-temperature-pulse-rate-respiration-rate-blood-pressure
     normal: [60, 100]
-    # used when lifecycle.vitals.heart_and_respiration_rate.model = continuous
-    # (ContinuousVitalSignGenerator). Values are reflected into "normal"; the per-person baseline is
-    # uniform inside "normal" shrunk by baseline_margin (a fraction of its width) on each side.
+    # lifecycle.vitals.heart_and_respiration_rate.model = continuous (ContinuousVitalSignGenerator).
+    # Values reflect into "normal"; the baseline is uniform inside it, shrunk by baseline_margin per side.
     # slow/fast: mean-reverting deviations (SD, time constant); measurement_sd: per-minute noise.
     # Placeholder values, not yet calibrated against observed inpatient data.
     continuous:
@@ -192,8 +171,7 @@ respiratory:
       fast_sd: 0.6
       fast_tau_hours: 4
       measurement_sd: 0.5
-# Bounds of heart and respiration rate once conditions and medications act on them (the "continuous"
-# values above stay inside "normal" without them), and of continuous blood pressure.
+# Bounds of the continuous vital signs once conditions and medications act on them.
 vital_sign_effect_bounds:
   heart_rate: [30, 220]
   respiration_rate: [6, 60]
@@ -201,42 +179,18 @@ vital_sign_effect_bounds:
   diastolic_blood_pressure: [25, 150]
   body_temperature: [33, 42]
   oxygen_saturation: [50, 100]
-# How conditions raise heart and respiration rate (ConditionVitalSignEffects). Used by the continuous
-# model when lifecycle.vitals.heart_and_respiration_rate.condition_effects = true.
-# Each effect adds its offset while one of its conditions (SNOMED codes, as recorded in the health
-# record) is active, from the time the condition is recorded. When the condition ends the offset decays
-# with time constant recovery_hours. An effect with max_days is acute: it also ends when the encounter
-# the condition was recorded in ends, and at the latest max_days after onset, because Synthea never
-# ends some acute conditions (e.g. sepsis.json leaves "Sepsis" active for life). Effects without
-# max_days are chronic. Several active effects combine sub-additively: largest first at full weight,
-# then each next one times combination_weight once more (0.5: 1, 1/2, 1/4, ...).
-# Course (lifecycle.vitals.heart_and_respiration_rate.condition_course): an acute effect with
-# resolution_hours (a number, or one per vital sign) is strongest at onset and falls towards residual (a
-# share of its offset) with that time constant once treated. With treated_by (drug classes of
-# vital_sign_drug_classes.csv), treatment starts with the first such medication recorded from
-# treatment_window_hours before onset, and until then the effect falls untreated_factor times slower;
-# without treated_by it falls from onset. The course never depends on when the encounter ends.
-# Severity (lifecycle.vitals.heart_and_respiration_rate.condition_severity): each episode's offsets are
-# multiplied by a log-normal factor with mean 1 and log-SD severity_sd, drawn per person, effect and
-# onset and shared by heart and respiration rate.
-# Magnitudes and courses are clinically plausible placeholders unless a source is given: e.g. fever
-# ~ +8-10 bpm per degree C (Liebermeister's rule); sepsis puts a typical patient above the SIRS cut-offs
-# (heart rate > 90, respiration rate > 20).
-# Blood pressure (lifecycle.vitals.blood_pressure.model = continuous, condition_effects = true):
-# systolic_blood_pressure and diastolic_blood_pressure act on the resting level as a factor, not in mmHg:
-# the combined offset is the natural log of the factor (-0.32 = x0.73, a quarter lower), so a hypertensive
-# patient falls as far as a normotensive one in proportion, and severe episodes and several effects
-# compound towards 0 instead of below it. Septic shock puts a typical normotensive patient at a mean
-# arterial pressure below 65 mmHg at onset (Sepsis-3 shock criterion) with a shock index (heart rate /
-# systolic) above 1; sepsis alone leaves MAP near 85.
-# Body temperature (lifecycle.vitals.body_temperature.model = continuous): body_temperature is an offset in
-# degrees C. reversal: a share of episodes act with another offset instead, drawn per person, effect and onset:
-# in a severe sepsis cohort 26% were at or below 36.5 (160 of 624; Kushimoto et al., Crit Care 2013). Pneumonia is
-# calibrated to a median of 3 days to 37.2 or below (Halm et al., JAMA 1998). Other sizes are clinically plausible
-# placeholders. Oxygen saturation (lifecycle.vitals.oxygen_saturation.model = continuous): oxygen_saturation is
-# in points of saturation (negative lowers it). Pneumonia is calibrated to 28% of admissions at or below 90 on room
-# air (Bewick et al., Prim Care Respir J 2010) and a median of 3 days to 90 or above (Halm et al.). Other sizes
-# are placeholders. Effects with neither heart_rate nor respiration_rate leave those two untouched.
+# How conditions change vital signs (ConditionVitalSignEffects). Sizes and courses are placeholders unless sourced.
+# An effect adds its offset while a listed condition (SNOMED) is active, then decays with recovery_hours.
+# Active effects combine sub-additively: largest first, each next one times combination_weight once more.
+# max_days: marks an effect acute. It ends with its encounter, or after max_days at the latest, because Synthea
+# never ends some acute conditions (e.g. sepsis.json).
+# resolution_hours: time constant of an acute effect's fall towards residual (a share of its offset).
+# treated_by: the fall starts with the first such drug from treatment_window_hours before onset, and until then
+# runs untreated_factor times slower. Without treated_by it starts at onset.
+# severity_sd: log-SD of a log-normal factor (mean 1) per episode, shared by all vital signs.
+# reversal: a share of episodes use another offset instead.
+# Units: blood pressure is the log of a factor on the resting level (-0.32 = x0.73), so effects compound towards 0;
+# body_temperature is degrees C; oxygen_saturation is points (negative lowers it).
 vital_sign_condition_effects:
   recovery_hours: 12
   combination_weight: 0.5
@@ -245,6 +199,7 @@ vital_sign_condition_effects:
   treatment_window_hours: 24
   effects:
     septic_shock:
+      # A typical normotensive patient has MAP below 65 at onset (Sepsis-3), with a shock index above 1.
       codes: ['76571007', '27942005'] # Septic shock; Shock
       body_temperature: 1.4
       oxygen_saturation: -4
@@ -258,6 +213,8 @@ vital_sign_condition_effects:
       residual: 0.1
       treated_by: [antibiotic]
     sepsis:
+      # A typical patient passes the SIRS cut-offs (heart rate > 90, respiration rate > 20), with MAP near 85.
+      # Reversal: 26% of severe sepsis at or below 36.5 (160 of 624; Kushimoto et al., Crit Care 2013).
       # Sepsis; Sepsis caused by virus; by Pseudomonas; by Staphylococcus aureus; Postoperative
       # sepsis; Bacteremia
       codes: ['91302008', '770349000', '448813005', '448417001', '698819004', '5758002']
@@ -291,10 +248,9 @@ vital_sign_condition_effects:
       resolution_hours: 48
       residual: 0.1
     pneumonia:
-      # Calibrated to community-acquired pneumonia admissions (Halm et al., JAMA 1998): with these
-      # values an average admission is at about heart rate 100 and respiration rate 26, and patients
-      # above heart rate 100 / respiration rate 24 at admission reach a day whose worst reading is at
-      # or below it after a median of 2 / 3 days on antibiotics (VitalSignEffectsRealismTest).
+      # Halm et al., JAMA 1998: an average admission is at about heart rate 100, respiration rate 26; median
+      # 2 / 3 days to heart rate <= 100 / respiration rate <= 24, 3 days to temperature <= 37.2 and saturation >= 90.
+      # 28% of admissions at or below 90 on room air (Bewick et al., Prim Care Respir J 2010).
       codes: ['233604007']
       body_temperature: 1.4
       oxygen_saturation: -4.2
@@ -325,7 +281,7 @@ vital_sign_condition_effects:
     fever:
       codes: ['386661006'] # Fever (finding), about 1.5 degrees C
       body_temperature: 1.5
-      heart_rate: 13
+      heart_rate: 13 # about 8-10 bpm per degree C (Liebermeister's rule)
       respiration_rate: 3
       max_days: 7
       resolution_hours: 36
@@ -418,24 +374,17 @@ vital_sign_condition_effects:
     lung_cancer:
       codes: ['254637007', '254632001'] # Non-small cell lung cancer; Small cell carcinoma of lung
       oxygen_saturation: -2
-# How medications change heart and respiration rate (MedicationVitalSignEffects). Used by the continuous
-# model when lifecycle.vitals.heart_and_respiration_rate.medication_effects = true.
-# vital_sign_drug_classes.csv assigns each drug code Synthea can prescribe to a class. For each vital sign
-# a class lists a shift of the resting value and a blunting: the share of the rise from conditions it
-# removes. A prescription acts from its start until it stops, then wears off with time constant
-# washout_hours; a one-off dose (an administration) acts for administration_hours, or not at all without
-# it. A person takes a prescribed class with probability adherence and responds by a factor drawn
-# uniformly from response; both are fixed per person and class. Classes combine like condition effects:
-# shifts sub-additively (combination_weight), bluntings multiplicatively.
-# Sources: beta blockers lower resting heart rate by roughly 10-15 bpm (e.g. heart failure trials,
-# McAlister et al., Ann Intern Med 2009); ivabradine by about 10 bpm (SHIFT, Swedberg et al., Lancet 2010);
-# adherence to cardiovascular drugs is about 60% (Naderi et al., Am J Med 2012). Other values, the
-# bluntings and the ophthalmic dose, are placeholders. Classes without a heart_rate or respiration_rate
-# entry (antibiotic, ...) only time the course of conditions (treated_by).
+# How medications change vital signs (MedicationVitalSignEffects). Values are placeholders unless sourced.
+# vital_sign_drug_classes.csv maps codes to classes; classes only there (antibiotic, ...) just time treated_by.
+# shift: change of the resting value. blunting: share of the rise from conditions removed.
+# washout_hours: wear-off after a prescription stops. administration_hours: how long a one-off dose acts (none without).
+# adherence: chance the person takes the class, about 60% for cardiovascular drugs (Naderi et al., Am J Med 2012).
+# response: range of the person's factor. Adherence and response are fixed per person and class.
+# Shifts combine sub-additively, bluntings multiplicatively.
 vital_sign_medication_effects:
   combination_weight: 0.5
   classes:
-    beta_blocker:
+    beta_blocker: # lowers resting heart rate 10-15 bpm (McAlister et al., Ann Intern Med 2009)
       heart_rate: {shift: -12, blunting: 0.3}
       adherence: 0.6
       response: [0.5, 1.5]
@@ -456,7 +405,7 @@ vital_sign_medication_effects:
       adherence: 0.6
       response: [0.5, 1.5]
       washout_hours: 72
-    ivabradine:
+    ivabradine: # lowers resting heart rate about 10 bpm (SHIFT, Swedberg et al., Lancet 2010)
       heart_rate: {shift: -10, blunting: 0.2}
       adherence: 0.6
       response: [0.5, 1.5]

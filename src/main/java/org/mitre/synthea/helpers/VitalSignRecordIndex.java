@@ -12,16 +12,11 @@ import org.mitre.synthea.world.concepts.HealthRecord.Encounter;
 import org.mitre.synthea.world.concepts.HealthRecord.Entry;
 
 /**
- * The conditions and medications with listed codes in a person's health records, so that dense
- * vital sign readings do not rescan the whole record each time.
+ * The conditions and medications with listed codes in a person's health records, read incrementally
+ * so dense vital sign readings do not rescan the whole record.
  *
- * <p>During the simulation a health record only grows: encounters are appended, and entries are
- * appended to an encounter, not always the newest one (a module that rewinds time after a delay
- * records into the encounter current at that time). update() remembers how many conditions and
- * medications of each encounter it has seen and reads only the new ones. Entries are kept by
- * reference, so a stop time set later is seen. If a record's encounter list is replaced or
- * shrinks (exporters filter records after the simulation) or a record disappears, the index
- * starts over.</p>
+ * <p>Entries can be appended to any encounter, not only the newest, so update() tracks how many it
+ * has seen per encounter. It starts over if a record's encounter list is replaced or shrinks.</p>
  */
 final class VitalSignRecordIndex {
   /** A listed condition or medication and the encounter it was recorded in. */
@@ -49,12 +44,6 @@ final class VitalSignRecordIndex {
   private final List<Item> conditions = new ArrayList<>();
   private final List<Item> medications = new ArrayList<>();
 
-  /**
-   * Create an empty index.
-   *
-   * @param conditionCodes codes of the conditions to keep
-   * @param medicationCodes codes of the medications to keep
-   */
   VitalSignRecordIndex(Set<String> conditionCodes, Set<String> medicationCodes) {
     this.conditionCodes = conditionCodes;
     this.medicationCodes = medicationCodes;

@@ -12,9 +12,8 @@ import org.mitre.synthea.world.concepts.HealthRecord.EncounterType;
 import org.mitre.synthea.world.geography.Location;
 
 /**
- * Where a person is at a time, for the continuous vital sign models: in which encounter, and at
- * what hour of the day locally. These only read the person's record, so a reading stays a pure
- * function of the time asked for and the record.
+ * Which encounter a person is in at a time, and the local hour, for the continuous vital signs.
+ * Reads only the person's record, so a reading stays a pure function of the time and the record.
  */
 final class VitalSignTime {
   private static final long MS_PER_HOUR = 3_600_000L;
@@ -93,10 +92,7 @@ final class VitalSignTime {
     return ZoneId.of(ZONES.getOrDefault(name, DEFAULT_ZONE));
   }
 
-  /**
-   * A raised cosine in the hour of the day: 1 at the trough hour, falling to 0 half width hours
-   * either side of it.
-   */
+  /** A raised cosine in the hour of the day: 1 at the trough hour, 0 from halfWidthHours away. */
   static double raisedCosine(double hour, double troughHour, double halfWidthHours) {
     double distance = Math.abs(hour - troughHour) % 24;
     distance = Math.min(distance, 24 - distance);

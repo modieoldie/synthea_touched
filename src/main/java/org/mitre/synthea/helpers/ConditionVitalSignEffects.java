@@ -18,41 +18,17 @@ import org.mitre.synthea.world.concepts.HealthRecord.Encounter;
 import org.mitre.synthea.world.concepts.HealthRecord.Entry;
 
 /**
- * How much a person's conditions raise (or lower) one vital sign, such as heart rate.
+ * How much a person's conditions raise or lower one vital sign. Parameters are in biometrics.yml
+ * (vital_sign_condition_effects).
  *
- * <p>Each effect lists condition codes and the offset it adds to the vital sign while one of
- * them is active, from the time the condition is recorded in the health record. After the
- * condition ends the offset decays exponentially (recovery_hours). An acute effect (one with
- * max_days) also ends when the encounter its condition was recorded in ends, and at the latest
- * max_days after onset, because Synthea leaves some acute conditions, such as sepsis, active
- * forever. Several active effects combine sub-additively: sorted by size, the largest counts
- * fully, the next times combination_weight, the next times its square, and so on.</p>
- *
- * <p>Course (optional): an acute effect with resolution_hours is strongest at onset and falls
- * towards residual (a share of its offset) with that time constant once treated. With
- * treated_by, treatment starts with the first medication of one of those drug classes recorded
- * from treatment_window_hours before onset; until then the effect falls untreated_factor times
- * slower. Without treated_by it falls from onset. The course is timed from onset and treatment,
- * never from discharge, so values during a stay do not reveal when the stay will end.</p>
- *
- * <p>Severity (optional): each episode's offset is multiplied by a log-normal factor with mean 1
- * and log-SD severity_sd, a pure function of the person's seed, the effect and the onset time,
- * so heart and respiration rate share it.</p>
- *
- * <p>Reversal (optional, per vital sign): a share of an effect's episodes act in another way, for
- * example some sepsis episodes lower body temperature instead of raising it. Whether an episode
- * does is also a pure function of the person's seed, the effect and the onset time.</p>
- *
- * <p>The offset at a time depends only on the person's health record up to that time, so a
- * value does not change with when or how often it is asked for. Parameters are in
- * biometrics.yml (vital_sign_condition_effects).</p>
+ * <p>An offset depends only on the health record up to the time asked for. The course is timed
+ * from onset and treatment, never discharge, so a reading does not reveal when a stay ends.</p>
  */
 public class ConditionVitalSignEffects implements Serializable {
-  /** Unchanged since the first version, so snapshots holding older effects still load. */
+  /** Kept at 1 so snapshots holding older effects still load. */
   private static final long serialVersionUID = 1L;
   private static final double MS_PER_HOUR = 3_600_000.0;
   private static final double MS_PER_DAY = 24 * MS_PER_HOUR;
-  /** Distinguishes severity draws from the person's other stateless random numbers. */
   private static final long SEVERITY_SALT = 0x73657665L;
 
   private final double recoveryMs;
@@ -61,7 +37,6 @@ public class ConditionVitalSignEffects implements Serializable {
   private final double severitySd;
   private final double untreatedFactor;
   private final double treatmentWindowMs;
-  /** Condition code to the index of its effect. */
   private final Map<String, Integer> effectOfCode;
   private final String[] names;
   /** Offset of each effect while its condition is active. */
@@ -75,9 +50,9 @@ public class ConditionVitalSignEffects implements Serializable {
   /** Drug codes that treat each effect; null when its course starts at onset. */
   private final Set<String>[] treatmentCodes;
   private final long[] severitySalts;
-  /** Share of each effect's episodes that act in the other direction (null in old snapshots). */
+  /** Share of each effect's episodes that are reversed (null in old snapshots). */
   private final double[] reversalShares;
-  /** The offset of a reversed episode, in place of the magnitude (null in old snapshots). */
+  /** Offset of a reversed episode (null in old snapshots). */
   private final double[] reversalOffsets;
 
   /**
@@ -257,12 +232,10 @@ public class ConditionVitalSignEffects implements Serializable {
     return ((Number) value).doubleValue();
   }
 
-  /** Codes of the conditions with an effect on this vital sign. */
   Set<String> conditionCodes() {
     return effectOfCode.keySet();
   }
 
-  /** Codes of the drugs that treat these effects. */
   Set<String> treatmentCodes() {
     Set<String> codes = new HashSet<>();
     for (Set<String> treatment : treatmentCodes) {
@@ -273,13 +246,7 @@ public class ConditionVitalSignEffects implements Serializable {
     return codes;
   }
 
-  /**
-   * The combined offset of the person's conditions at a time, before bounding.
-   *
-   * @param person the person
-   * @param time the time
-   * @return the offset
-   */
+  /** The combined offset of the person's conditions at a time, before bounding. */
   public double offset(Person person, long time) {
     VitalSignRecordIndex index = new VitalSignRecordIndex(conditionCodes(), treatmentCodes());
     index.update(person);
@@ -408,10 +375,8 @@ public class ConditionVitalSignEffects implements Serializable {
   /**
    * Whether one episode of an effect is reversed.
    *
-   * @param person the person
    * @param effect the effect's name in biometrics.yml
    * @param onset the start of the episode's condition
-   * @return true if the episode acts with the reversal offset
    */
   public boolean reversed(Person person, String effect, long onset) {
     int index = Arrays.asList(names).indexOf(effect);
@@ -432,10 +397,8 @@ public class ConditionVitalSignEffects implements Serializable {
   /**
    * The severity factor of one episode of an effect (1 without severity).
    *
-   * @param person the person
    * @param effect the effect's name in biometrics.yml
    * @param onset the start of the episode's condition
-   * @return the factor on the effect's offset
    */
   public double severity(Person person, String effect, long onset) {
     int index = Arrays.asList(names).indexOf(effect);

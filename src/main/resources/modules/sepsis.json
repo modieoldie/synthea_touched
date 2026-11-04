@@ -678,7 +678,7 @@
     "Septic_Shock_Blood_Pressure": {
       "type": "Simple",
       "remarks": [
-        "Continuous blood pressure: record the shock onset first, then blood pressure and MAP from the generator, which lowers them in septic shock. Otherwise type in a low MAP as before."
+        "Continuous blood pressure: record shock onset first, then blood pressure and MAP from the generator. Otherwise type in a low MAP."
       ],
       "conditional_transition": [
         {
@@ -698,7 +698,7 @@
     "Sepsis_Blood_Pressure": {
       "type": "Simple",
       "remarks": [
-        "Continuous blood pressure: record blood pressure and MAP from the generator. Otherwise type in a normal MAP as before."
+        "Continuous blood pressure: record blood pressure and MAP from the generator. Otherwise type in a normal MAP."
       ],
       "conditional_transition": [
         {
@@ -850,7 +850,7 @@
     "ICU_Blood_Pressure": {
       "type": "Simple",
       "remarks": [
-        "Continuous blood pressure: record blood pressure in the ICU from the generator (with or without vasopressors). Otherwise type in a range as before (systolic and diastolic drawn separately)."
+        "Continuous blood pressure: record ICU blood pressure from the generator. Otherwise type in a range."
       ],
       "conditional_transition": [
         {

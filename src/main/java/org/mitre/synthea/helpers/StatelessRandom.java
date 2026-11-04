@@ -1,10 +1,6 @@
 package org.mitre.synthea.helpers;
 
-/**
- * Random numbers that are pure functions of their arguments (a seed, a salt and an index), for
- * values that must not depend on when or how often they are asked for and must not consume a
- * person's random number stream.
- */
+/** Random numbers that are pure functions of a seed, a salt and an index. */
 final class StatelessRandom {
   private StatelessRandom() {
   }

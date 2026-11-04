@@ -15,22 +15,12 @@ import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.concepts.VitalSign;
 
 /**
- * A ValueGenerator for systolic or diastolic blood pressure that varies continuously in time.
+ * Systolic or diastolic blood pressure that varies continuously in time: the stock resting level,
+ * scaled by conditions and a night dip during stays, plus slow and fast deviations and measurement
+ * noise partly shared between the two. Soft caps keep diastolic below systolic.
  *
- * <p>The resting level is the stock generator's (BloodPressureValueGenerator.restingLevel: the
- * baseline for the person's hypertension status plus hypertension drugs and a lifestyle care
- * plan). Conditions scale it (septic shock lowers it by about a third), it dips at night while the
- * person is in a stay, and a slow and a fast mean-reverting deviation plus per-minute measurement
- * noise vary it. Each deviation is partly shared between systolic and diastolic, so the two move
- * together. The diastolic level is kept below max_diastolic_share of the systolic level (pulse
- * pressure), and each diastolic reading at least min_pulse_pressure below the systolic one. Both
- * caps are soft, so values do not pile up at them.</p>
- *
- * <p>Every random number is a hash of the person's seed, so a value depends only on the time asked
- * for and the person's health record and attributes. It does not depend on how often or in which
- * order values are requested, and the person's random number stream is never used. A baseline,
- * drug response or care plan adherence the stock generator already kept in the person's attributes
- * (a population snapshot made with it) is reused.</p>
+ * <p>A value depends only on the time and the person's record and attributes. Draws kept by the
+ * stock generator are reused.</p>
  */
 public class ContinuousBloodPressureGenerator extends ValueGenerator {
   private static final long serialVersionUID = 1L;
@@ -41,7 +31,6 @@ public class ContinuousBloodPressureGenerator extends ValueGenerator {
   /** Softness (mmHg) of the cap on the diastolic reading. */
   private static final double READING_SOFTNESS = 2;
 
-  /** Distinguishes the person's blood pressure seed from their other stateless seeds. */
   private static final long SEED_SALT = 0x62705f73L;
   // salts within the blood pressure seed: index 0 is systolic, 1 diastolic
   private static final long COMMON_SLOW = 1;
@@ -75,17 +64,14 @@ public class ContinuousBloodPressureGenerator extends ValueGenerator {
   private final double minPulsePressure;
   private final double[] lowerBound;
   private final double[] upperBound;
-  /** Condition effects on systolic and diastolic (shares of the resting level); null for none. */
+  /** Condition effects on systolic and diastolic (log factors); null for none. */
   private final ConditionVitalSignEffects[] effects;
-  /** The entries of the person's record that the effects read, built on first use. */
+  /** Built on first use. */
   private transient VitalSignRecordIndex index;
   private transient String zoneState;
   private transient ZoneId zone;
 
-  /**
-   * Mean arterial pressure, (systolic + 2 x diastolic) / 3, from the person's blood pressure as
-   * recorded (rounded), so a recorded MAP always matches the recorded blood pressure.
-   */
+  /** Mean arterial pressure from the recorded (rounded) blood pressure, so the two always match. */
   public static class MeanArterialPressure extends ValueGenerator {
     private static final long serialVersionUID = 1L;
 
@@ -120,11 +106,9 @@ public class ContinuousBloodPressureGenerator extends ValueGenerator {
   }
 
   /**
-   * Create a generator for one person's systolic or diastolic blood pressure. The person's two
-   * generators share their random numbers, so they agree on every reading.
+   * Create one person's systolic or diastolic generator. The person's two generators share their
+   * random numbers, so they agree on every reading.
    *
-   * @param person the person the values belong to
-   * @param sysDias systolic or diastolic
    * @param config parameters, see metabolic.blood_pressure.continuous in biometrics.yml
    * @param systolicEffects condition effects on systolic, or null for none
    * @param diastolicEffects condition effects on diastolic, or null for none
@@ -212,22 +196,14 @@ public class ContinuousBloodPressureGenerator extends ValueGenerator {
     return bound(DIA, diastolic);
   }
 
-  /**
-   * The resting level (stock baseline, hypertension drugs, lifestyle) before conditions, the night
-   * dip and variation.
-   *
-   * @param which systolic or diastolic
-   * @param time the time
-   * @return the resting level
-   */
+  /** The stock resting level, before conditions, the night dip and variation. */
   public double restingLevel(SysDias which, long time) {
     return BloodPressureValueGenerator.restingLevel(person, which, time, new StatelessDraws(seed));
   }
 
   /**
-   * The resting level, scaled by the person's conditions and the night dip. The conditions'
-   * combined offset is the log of their factor, so a severe episode or several effects compound
-   * towards 0 rather than past it.
+   * The resting level scaled by conditions and the night dip. The conditions' offset is the log of
+   * their factor, so several effects compound towards 0 rather than past it.
    */
   private double level(int i, long time, double night) {
     double resting = restingLevel(i == SYS ? SysDias.SYSTOLIC : SysDias.DIASTOLIC, time);
@@ -245,10 +221,7 @@ public class ContinuousBloodPressureGenerator extends ValueGenerator {
     return slowSd[i] * slow + fastSd[i] * fast + measurementSd[i] * noise;
   }
 
-  /**
-   * How deep into the night dip a time is: 1 at the trough hour, falling as a raised cosine to 0
-   * dip_half_width_hours either side of it. 0 when the person is not in a stay.
-   */
+  /** Depth of the night dip at a time, from 1 at the trough hour down to 0; 0 outside a stay. */
   double nightShare(long time) {
     if (dip == 0 || !VitalSignTime.inStay(person, time)) {
       return 0;
@@ -292,7 +265,6 @@ public class ContinuousBloodPressureGenerator extends ValueGenerator {
     return Math.min(a, b) - softness * Math.log1p(Math.exp(-Math.abs(a - b) / softness));
   }
 
-  /** The person's night dip at its deepest, as a share of the level. */
   public double getNocturnalDip() {
     return dip;
   }

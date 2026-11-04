@@ -50,10 +50,7 @@ public class LifecycleModuleTest {
     assertEquals(false, person.alive(time));
   }
 
-  /**
-   * A generator loaded from a population snapshot may carry older parameters: the lifecycle
-   * replaces any continuous generator, but leaves a value a module set explicitly alone.
-   */
+  /** Replaces a snapshot's stale continuous generator, but leaves a module's value alone. */
   @Test
   public void continuousVitalSignIsRebuiltWithCurrentParameters() {
     Map<String, Object> config =
@@ -79,11 +76,7 @@ public class LifecycleModuleTest {
     assertTrue(person.vitalSigns.get(VitalSign.HEART_RATE) instanceof ConstantValueGenerator);
   }
 
-  /**
-   * The continuous blood pressure model replaces the stock generators (a snapshot person's),
-   * leaves a value a module set alone, adds a mean arterial pressure that matches the recorded
-   * values, and marks the person for sepsis.json.
-   */
+  /** Replaces stock generators, leaves a module's value alone, adds MAP and marks the person. */
   @Test
   public void continuousBloodPressureReplacesTheStockGenerators() {
     Map<String, Object> config =
@@ -138,10 +131,7 @@ public class LifecycleModuleTest {
     assertEquals(38.5, person.getVitalSign(VitalSign.BODY_TEMPERATURE, time), 0);
   }
 
-  /**
-   * Like the stock value, replaced at every timestep: what the COVID-19 modules set lasts until
-   * then, whereas leaving it alone would keep it for life.
-   */
+  /** Replaced every timestep like the stock value, or a COVID-19 value would last for life. */
   @Test
   public void continuousOxygenSaturationReplacesAModuleValueAtTheNextTimestep() {
     Map<String, Object> config =

@@ -17,25 +17,16 @@ import org.mitre.synthea.world.concepts.BiometricsConfig;
 import org.mitre.synthea.world.concepts.HealthRecord.Medication;
 
 /**
- * How a person's medications change one vital sign: a beta blocker, for example, lowers the
- * resting heart rate and blunts the rise that illness causes.
+ * How a person's medications change one vital sign: a shift of the resting value and a blunting of
+ * the rise from conditions. Parameters are in biometrics.yml (vital_sign_medication_effects) and
+ * vital_sign_drug_classes.csv.
  *
- * <p>vital_sign_drug_classes.csv assigns each drug code to a class; biometrics.yml
- * (vital_sign_medication_effects) gives each class its effect on each vital sign: a shift of the
- * resting value and a blunting, the share of the rise from conditions that it removes. A
- * prescription acts from its start until it stops and then wears off over washout_hours; a one-off
- * dose (an administration) is ignored unless its class gives administration_hours.</p>
- *
- * <p>A prescription is not proof that the person takes the drug. Each person takes each class with
- * probability adherence, and responds to it by a factor drawn uniformly from response. Both draws
- * are pure functions of the person's seed and the class, so they are the same for every vital sign
- * and every reading and do not consume the person's random number stream. Several classes combine
- * like condition effects: shifts sub-additively, largest first, and blunting multiplicatively.</p>
+ * <p>Whether a person takes a class, and how strongly they respond, are pure functions of the
+ * person's seed and the class, so they hold for every vital sign and reading.</p>
  */
 public class MedicationVitalSignEffects implements Serializable {
   private static final long serialVersionUID = 1L;
   private static final double MS_PER_HOUR = 3_600_000.0;
-  /** Distinguishes these draws from the person's other stateless random numbers. */
   private static final long SALT = 0x6d656473L;
   private static Map<String, String> drugClasses;
 
@@ -173,7 +164,6 @@ public class MedicationVitalSignEffects implements Serializable {
     }
   }
 
-  /** Whether no class acts on this vital sign. */
   public boolean isEmpty() {
     return names.length == 0;
   }
@@ -186,8 +176,6 @@ public class MedicationVitalSignEffects implements Serializable {
   /**
    * Apply the person's medications to a value.
    *
-   * @param person the person
-   * @param time the time of the value
    * @param value the vital sign without conditions or medications
    * @param rise the combined offset of the person's conditions
    * @return the vital sign with conditions and medications, not bounded
@@ -275,12 +263,8 @@ public class MedicationVitalSignEffects implements Serializable {
   }
 
   /**
-   * Whether the person takes drugs of a class, and how strongly they respond: 0 if the class does
-   * not act on this vital sign or the person does not take it.
-   *
-   * @param person the person
-   * @param drugClass the class name
-   * @return the factor on the class's effect
+   * The person's factor on a class's effect: 0 if the class does not act on this vital sign or the
+   * person does not take it.
    */
   public double personalFactor(Person person, String drugClass) {
     int drug = Arrays.asList(names).indexOf(drugClass);

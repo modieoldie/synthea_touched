@@ -21,10 +21,7 @@ import org.mitre.synthea.world.concepts.VitalSign;
 import org.mitre.synthea.world.geography.Location;
 import org.mockito.Mockito;
 
-/**
- * Runs a module through the engine: the heart rate its Observation states record while the
- * person has sepsis carries the sepsis offset.
- */
+/** The heart rate a module's Observation states record carries the sepsis offset. */
 public class ConditionVitalSignEffectsModuleTest {
   private static final long HOUR = 3_600_000L;
   private static final String SEPSIS = "91302008";

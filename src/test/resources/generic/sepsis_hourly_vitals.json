@@ -1,8 +1,7 @@
 {
   "name": "Sepsis Hourly Vitals",
   "remarks": [
-    "Test fixture for ConditionVitalSignEffects: sepsis diagnosed at an emergency encounter,",
-    "then 24 hourly heart rate readings and discharge, like sepsis.json (which never ends sepsis)."
+    "Sepsis at an emergency encounter, then 24 hourly heart rate readings and discharge."
   ],
   "states": {
     "Initial": {

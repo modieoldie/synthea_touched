@@ -12,10 +12,7 @@ import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.concepts.HealthRecord.EncounterType;
 import org.mitre.synthea.world.concepts.VitalSign;
 
-/**
- * Population checks of the parameters in biometrics.yml against published observations, with
- * the generators as LifecycleModule builds them (all effects on).
- */
+/** Population checks of the parameters in biometrics.yml against published observations. */
 public class VitalSignEffectsRealismTest {
   private static final long HOUR = 3_600_000L;
   private static final long T0 = 1_788_000_000_000L;  // Sep 2026
@@ -56,9 +53,8 @@ public class VitalSignEffectsRealismTest {
   }
 
   /**
-   * Halm et al. (JAMA 1998), community-acquired pneumonia: median 2 days to heart rate <= 100 and
-   * 3 days to respiration rate <= 24. Here: patients admitted with pneumonia and given antibiotics,
-   * among those above the threshold on the admission day.
+   * Halm et al. (JAMA 1998), pneumonia: median 2 days to heart rate <= 100 and 3 days to
+   * respiration rate <= 24, among those above the threshold on the admission day.
    */
   @Test
   public void pneumoniaResolvesLikeHospitalizedPneumonia() {
@@ -107,9 +103,8 @@ public class VitalSignEffectsRealismTest {
 
   /**
    * Halm et al. (JAMA 1998): median 3 days to temperature <= 37.2 and to oxygen saturation >= 90.
-   * Admissions: 28% at or below 90 on room air (Bewick et al., Prim Care Respir J 2010). A ward
-   * reads a set every 6 hours, so stability here is the first day whose worst such reading passes,
-   * among those who did not pass on the admission day; oxygen saturation on room air.
+   * Admissions: 28% at or below 90 on room air (Bewick et al., Prim Care Respir J 2010). Stability
+   * is the first day whose worst 6-hourly reading passes, among those not passing on admission.
    */
   @Test
   public void pneumoniaFeverAndHypoxemiaResolveLikeHospitalizedPneumonia() {

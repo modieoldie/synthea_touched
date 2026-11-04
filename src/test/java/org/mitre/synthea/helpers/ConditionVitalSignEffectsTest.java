@@ -118,7 +118,6 @@ public class ConditionVitalSignEffectsTest {
     return new ConditionVitalSignEffects(config(), "heart_rate");
   }
 
-  /** Start an encounter and record conditions in it. */
   private static Encounter admit(Person person, long time, String... codes) {
     Encounter encounter = person.record.encounterStart(time, EncounterType.EMERGENCY);
     for (String code : codes) {
@@ -581,10 +580,7 @@ public class ConditionVitalSignEffectsTest {
     assertTrue(14 + respirationRate.offset(person, T0) > 20);
   }
 
-  /**
-   * Every code in biometrics.yml must be the primary code of a ConditionOnset state in some
-   * module; otherwise it can never match (a typo, or a module that changed its codes).
-   */
+  /** Every code in biometrics.yml must be the primary code of a ConditionOnset state. */
   @Test
   @SuppressWarnings("unchecked")
   public void biometricsCodesAreConditionsInModules() throws Exception {

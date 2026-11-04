@@ -8,26 +8,17 @@ import org.mitre.synthea.helpers.ContinuousVitalSignGenerator.Deviation;
 import org.mitre.synthea.world.agents.Person;
 
 /**
- * A ValueGenerator for body temperature (degrees Celsius) that varies continuously in time.
+ * Body temperature (degrees Celsius) that varies continuously in time: a personal baseline, a daily
+ * rhythm, slow and fast deviations and measurement noise, then VitalSignEffects.
  *
- * <p>A reading is the person's baseline (with small age and sex terms), plus a daily rhythm, plus a
- * slow and a fast mean-reverting deviation and per-minute measurement noise. VitalSignEffects then
- * applies conditions (fever, or the fall in temperature of a cold sepsis episode) and antipyretics,
- * and bounds the result.</p>
- *
- * <p>The rhythm follows the local hour during stays (inpatient, nursing facility, hospice). Outside
- * them it is read at a fixed clinic hour: a person's timestep events all fall at one time of day,
- * so following the hour there would shift all of one person's outpatient readings the same way.</p>
- *
- * <p>Every random number is a hash of the person's seed, so a value depends only on the time asked
- * for and the person's health record and attributes. It does not depend on how often or in which
- * order values are requested, and the person's random number stream is never used.</p>
+ * <p>Outside stays the rhythm is read at a fixed clinic hour, because a person's timestep events
+ * all fall at one time of day. A value depends only on the time and the person's record and
+ * attributes.</p>
  */
 public class ContinuousBodyTemperatureGenerator extends ValueGenerator {
   private static final long serialVersionUID = 1L;
   /** Measurement noise is drawn once per minute. */
   private static final long NOISE_BUCKET_MS = 60_000L;
-  /** Distinguishes the person's temperature seed from their other stateless seeds. */
   private static final long SEED_SALT = 0x74656d70L;
   private static final long SLOW = 1;
   private static final long FAST = 2;
@@ -49,13 +40,12 @@ public class ContinuousBodyTemperatureGenerator extends ValueGenerator {
   private final Deviation fast;
   /** The person's conditions and medications; null for none. */
   private final VitalSignEffects effects;
-  /** The entries of the person's record that the effects read, built on first use. */
+  /** Built on first use. */
   private transient VitalSignRecordIndex index;
 
   /**
    * Create a generator for one person's body temperature.
    *
-   * @param person the person the values belong to
    * @param config parameters, see cardiovascular.body_temperature.continuous in biometrics.yml
    * @param effects the person's conditions and medications, or null for none
    * @param bounds {min, max} of the values

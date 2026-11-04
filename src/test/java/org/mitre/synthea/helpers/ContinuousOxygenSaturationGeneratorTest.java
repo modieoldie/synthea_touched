@@ -193,9 +193,8 @@ public class ContinuousOxygenSaturationGeneratorTest {
   }
 
   /**
-   * An acute MI cohort read 92 on average in Killip class 2 and 85 in class 3 (Rev Esp Cardiol
-   * 2012). An admission for heart failure arrives near 92, some of them below the module's oxygen
-   * threshold of 90; the first reading is on room air, so the module's branch still sees it.
+   * Acute MI read 92 in Killip class 2 and 85 in class 3 (Rev Esp Cardiol 2012). Heart failure
+   * arrives near 92; the first reading is on room air, so the module's oxygen branch sees it.
    */
   @Test
   public void heartFailureAdmissionArrivesLowOnRoomAir() {

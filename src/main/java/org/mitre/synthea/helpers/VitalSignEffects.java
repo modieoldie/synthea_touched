@@ -13,10 +13,8 @@ import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.concepts.BiometricsConfig;
 
 /**
- * Everything in a person's clinical state that changes one vital sign: conditions raise it
- * (ConditionVitalSignEffects), then medications shift it and blunt that rise
- * (MedicationVitalSignEffects). The result is bounded to vital_sign_effect_bounds in
- * biometrics.yml. Either part may be absent.
+ * Applies a person's conditions, then medications, to one vital sign and bounds the result
+ * (vital_sign_effect_bounds in biometrics.yml). Either part may be absent.
  */
 public class VitalSignEffects implements Serializable {
   private static final long serialVersionUID = 1L;
@@ -96,14 +94,7 @@ public class VitalSignEffects implements Serializable {
     return new VitalSignRecordIndex(conditionCodes, medicationCodes);
   }
 
-  /**
-   * Apply the person's conditions and medications to a value and bound the result.
-   *
-   * @param person the person
-   * @param time the time of the value
-   * @param value the vital sign without effects
-   * @return the vital sign with effects
-   */
+  /** Apply the person's conditions and medications to a value and bound the result. */
   public double apply(Person person, long time, double value) {
     return apply(person, newIndex(), time, value);
   }
@@ -126,12 +117,10 @@ public class VitalSignEffects implements Serializable {
     return medications;
   }
 
-  /** Lower bound of the vital sign with effects. */
   public double getMinimumValue() {
     return minimumValue;
   }
 
-  /** Upper bound of the vital sign with effects. */
   public double getMaximumValue() {
     return maximumValue;
   }

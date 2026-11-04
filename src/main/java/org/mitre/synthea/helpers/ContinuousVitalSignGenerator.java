@@ -8,24 +8,14 @@ import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.concepts.BiometricsConfig;
 
 /**
- * A ValueGenerator for vital signs that vary continuously in time, such as heart rate.
+ * A vital sign that varies continuously in time, such as heart rate: a per-person baseline plus
+ * slow and fast mean-reverting deviations and measurement noise, reflected into [min, max].
+ * VitalSignEffects may then take the value outside that range, up to its own bounds.
  *
- * <p>The value is a per-person baseline plus a slow and a fast mean-reverting
- * (Ornstein-Uhlenbeck) deviation plus white measurement noise, reflected into [min, max].
- * Each deviation is an AR(1) process on its own fixed time grid and is linearly
- * interpolated between grid points. Optionally, VitalSignEffects then applies the person's
- * clinical state: conditions (e.g. sepsis raises heart rate) and medications (e.g. a beta
- * blocker lowers it), which may take the value outside [min, max] up to the effects' own
- * bounds.</p>
- *
- * <p>The random innovations are a hash of the person's seed, the vital sign and the grid
- * index, so getValue(time) depends only on the time asked for. It does not depend on
- * generate.timestep, on how often or in which order values are requested, and it does not
- * consume the person's random number stream.</p>
+ * <p>A value depends only on the time, not on generate.timestep or the order of requests.</p>
  */
 public class ContinuousVitalSignGenerator extends ValueGenerator {
-  /** Unchanged since the first version, so snapshots holding an older generator still load;
-   * LifecycleModule then replaces it. */
+  /** Kept at 1 so older snapshots still load; LifecycleModule then replaces the generator. */
   private static final long serialVersionUID = 1L;
   private static final double MS_PER_HOUR = 3_600_000.0;
   /** Measurement noise is drawn once per minute. */
@@ -44,7 +34,7 @@ public class ContinuousVitalSignGenerator extends ValueGenerator {
   private final Deviation fast;
   /** The person's conditions and medications; null for none. */
   private final VitalSignEffects effects;
-  /** The entries of the person's record that the effects read, built on first use. */
+  /** Built on first use. */
   private transient VitalSignRecordIndex index;
 
   /** One mean-reverting deviation with stationary SD sd and time constant tau. */
@@ -104,7 +94,6 @@ public class ContinuousVitalSignGenerator extends ValueGenerator {
   /**
    * Create a generator for one vital sign of one person.
    *
-   * @param person the person the values belong to
    * @param vitalSalt distinguishes this vital sign's random path from the person's others
    * @param minimumValue lower bound of the values; the baseline is drawn inside the bounds
    * @param maximumValue upper bound of the values
@@ -119,7 +108,6 @@ public class ContinuousVitalSignGenerator extends ValueGenerator {
    * Create a generator for one vital sign of one person that also responds to the person's
    * conditions and medications.
    *
-   * @param person the person the values belong to
    * @param vitalSalt distinguishes this vital sign's random path from the person's others
    * @param minimumValue lower bound of the values without effects
    * @param maximumValue upper bound of the values without effects

@@ -145,10 +145,9 @@ public class ContinuousBloodPressureGeneratorTest {
   }
 
   /**
-   * Readings at one time of day are centered on the resting level, with the spread of the stock
-   * variation over a day (SD 8 systolic, 5 diastolic). The stock generator's sign depends only on
-   * the UTC time of day, so all its readings at one time of day are off the same way (a person's
-   * timestep events, such as wellness visits, all fall at one time of day).
+   * Readings at one time of day center on the resting level with the stock spread (SD 8 systolic,
+   * 5 diastolic). The stock generator's sign depends only on the UTC time of day, so its readings
+   * at one time of day are all off the same way.
    */
   @Test
   public void readingsAtOneTimeOfDayAreCenteredOnTheRestingLevel() {
@@ -298,10 +297,7 @@ public class ContinuousBloodPressureGeneratorTest {
     assertEquals(b[0].getValue(onset + 8 * DAY), a[0].getValue(onset + 8 * DAY), 0.5);
   }
 
-  /**
-   * With course and severity: a typical normotensive patient in septic shock is below a mean
-   * arterial pressure of 65 at onset with a shock index above 1, and recovers once treated.
-   */
+  /** Typical septic shock: MAP below 65, shock index above 1 at onset, recovering once treated. */
   @Test
   public void septicShockIsRealistic() {
     int people = 200;

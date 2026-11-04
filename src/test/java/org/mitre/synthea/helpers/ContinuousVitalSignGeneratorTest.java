@@ -140,11 +140,7 @@ public class ContinuousVitalSignGeneratorTest {
     assertEquals(before, person.getCount());
   }
 
-  /**
-   * A generator that reads while the record grows (its index updated incrementally) gives the
-   * same values as one that reads the finished record, and a reading never changes once the
-   * record has moved past its time.
-   */
+  /** Reading while the record grows gives the same values as reading the finished record. */
   @Test
   public void readingWhileTheRecordGrowsMatchesReadingAfterwards() {
     Person person = ConditionVitalSignEffectsTest.patient(11L);

@@ -101,10 +101,7 @@ public class ContinuousBodyTemperatureGeneratorTest {
     assertEquals(attributes, person.attributes.size());
   }
 
-  /**
-   * Reading a value draws nothing, but a recorded observation does: HealthRecord.Entry gives each
-   * entry a random UUID. So recording more readings re-rolls the person's later events.
-   */
+  /** Reading a value draws nothing, but each recorded observation draws a random UUID. */
   @Test
   public void recordingAReadingMovesTheRandomNumbersThroughItsEntry() {
     Person person = patient(8L);
@@ -137,10 +134,7 @@ public class ContinuousBodyTemperatureGeneratorTest {
     }
   }
 
-  /**
-   * Afebrile outpatient readings: mean 36.6, 95% in 35.7-37.3 (Obermeyer et al., BMJ 2017; mean age
-   * 53, 64% women).
-   */
+  /** Afebrile outpatient readings: mean 36.6, 95% in 35.7-37.3 (Obermeyer et al., BMJ 2017). */
   @Test
   public void healthyOutpatientReadingsMatchThePublishedRange() {
     int people = 6000;
@@ -286,8 +280,8 @@ public class ContinuousBodyTemperatureGeneratorTest {
   }
 
   /**
-   * Severe sepsis: 26% at or below 36.5 (160 of 624, Kushimoto et al., Crit Care 2013). The
-   * direction belongs to the episode: a cold patient stays cold, and heart rate is not affected.
+   * Severe sepsis: 26% at or below 36.5 (Kushimoto et al., Crit Care 2013). A cold patient stays
+   * cold, and heart rate is not affected.
    */
   @Test
   public void someSepsisEpisodesRunCold() {
