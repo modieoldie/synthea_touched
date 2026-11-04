@@ -223,8 +223,8 @@ public class ContinuousOxygenSaturationGenerator extends ValueGenerator {
 
   /**
    * Points added by oxygen in hospital: a share of the gap to target once the room-air level is
-   * low. Judged on the slow level, so a patient does not flicker on and off oxygen. A lift below
-   * min_lift counts as none.
+   * low. Judged without the fast deviation, but with the night dip, so a patient near the start
+   * level can switch on and off overnight. A lift below min_lift counts as none.
    */
   private double oxygenLift(long time, double slowDeficit) {
     Encounter encounter = VitalSignTime.oxygenEncounter(person, time);
