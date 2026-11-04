@@ -13,6 +13,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.mitre.synthea.helpers.ConstantValueGenerator;
 import org.mitre.synthea.helpers.ContinuousBloodPressureGenerator;
+import org.mitre.synthea.helpers.ContinuousBodyTemperatureGenerator;
+import org.mitre.synthea.helpers.ContinuousOxygenSaturationGenerator;
 import org.mitre.synthea.helpers.ContinuousVitalSignGenerator;
 import org.mitre.synthea.helpers.MedicationVitalSignEffects;
 import org.mitre.synthea.helpers.PhysiologyValueGenerator;
@@ -110,6 +112,60 @@ public class LifecycleModuleTest {
     assertTrue(systolic + "/" + diastolic, systolic > diastolic);
     assertEquals(Math.round((systolic + 2 * diastolic) / 3),
         person.getVitalSign(VitalSign.MEAN_ARTERIAL_PRESSURE, time), 0);
+  }
+
+  /** Marks the person for modules, rebuilds a stale generator, leaves a module's value alone. */
+  @Test
+  public void continuousBodyTemperatureIsSetForTheModules() {
+    Map<String, Object> config =
+        ContinuousVitalSignGenerator.loadConfig("cardiovascular.body_temperature.continuous");
+    double[] bounds = VitalSignEffects.loadBounds("body_temperature");
+    Person person = new Person(3L);
+    person.attributes.put(Person.BIRTHDATE, 0L);
+    long time = System.currentTimeMillis();
+    LifecycleModule.setContinuousBodyTemperature(person, config, null, bounds);
+    assertEquals(true,
+        person.attributes.get(LifecycleModule.CONTINUOUS_BODY_TEMPERATURE_ATTRIBUTE));
+    ValueGenerator first = person.vitalSigns.get(VitalSign.BODY_TEMPERATURE);
+    assertTrue(first instanceof ContinuousBodyTemperatureGenerator);
+    LifecycleModule.setContinuousBodyTemperature(person, config, null, bounds);
+    assertNotSame(first, person.vitalSigns.get(VitalSign.BODY_TEMPERATURE));
+    assertEquals(first.getValue(time),
+        person.vitalSigns.get(VitalSign.BODY_TEMPERATURE).getValue(time), 0);
+
+    person.setVitalSign(VitalSign.BODY_TEMPERATURE, 38.5);  // as a VitalSign state would
+    LifecycleModule.setContinuousBodyTemperature(person, config, null, bounds);
+    assertEquals(38.5, person.getVitalSign(VitalSign.BODY_TEMPERATURE, time), 0);
+  }
+
+  /**
+   * Like the stock value, replaced at every timestep: what the COVID-19 modules set lasts until
+   * then, whereas leaving it alone would keep it for life.
+   */
+  @Test
+  public void continuousOxygenSaturationReplacesAModuleValueAtTheNextTimestep() {
+    Map<String, Object> config =
+        ContinuousVitalSignGenerator.loadConfig("cardiovascular.oxygen_saturation.continuous");
+    double[] bounds = VitalSignEffects.loadBounds("oxygen_saturation");
+    Person person = new Person(3L);
+    person.attributes.put(Person.BIRTHDATE, 0L);
+    long time = System.currentTimeMillis();
+    person.setVitalSign(VitalSign.OXYGEN_SATURATION, 80.0);  // as a VitalSign state would
+    LifecycleModule.setContinuousOxygenSaturation(person, config, null, bounds);
+    assertTrue(person.vitalSigns.get(VitalSign.OXYGEN_SATURATION)
+        instanceof ContinuousOxygenSaturationGenerator);
+    assertEquals(true,
+        person.attributes.get(LifecycleModule.CONTINUOUS_OXYGEN_SATURATION_ATTRIBUTE));
+    assertEquals(21, person.getVitalSign(VitalSign.INHALED_OXYGEN, time), 0);
+    assertTrue(person.getVitalSign(VitalSign.OXYGEN_SATURATION, time) > 85);
+  }
+
+  /** Their ordinals seed the continuous heart and respiration rate. */
+  @Test
+  public void newVitalSignsDoNotMoveTheOrdinalsOfOlderOnes() {
+    assertEquals(26, VitalSign.HEART_RATE.ordinal());
+    assertEquals(27, VitalSign.RESPIRATION_RATE.ordinal());
+    assertEquals(28, VitalSign.MEAN_ARTERIAL_PRESSURE.ordinal());
   }
 
   @Test

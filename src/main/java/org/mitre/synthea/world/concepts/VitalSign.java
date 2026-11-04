@@ -35,7 +35,11 @@ public enum VitalSign {
   @SerializedName("Respiration Rate") RESPIRATION_RATE,
   /** Only set by the continuous blood pressure model; added last so the others keep their
    * ordinals, which seed the continuous heart and respiration rate. */
-  @SerializedName("Mean Arterial Pressure") MEAN_ARTERIAL_PRESSURE;
+  @SerializedName("Mean Arterial Pressure") MEAN_ARTERIAL_PRESSURE,
+  /** Only set by the continuous body temperature model; in degrees Celsius. */
+  @SerializedName("Body Temperature") BODY_TEMPERATURE,
+  /** Only set by the continuous oxygen saturation model; 21 (%) on room air. */
+  @SerializedName("Inhaled Oxygen Concentration") INHALED_OXYGEN;
 
   /**
    * Name of the VitalSign. Cached as a string for better lookup performance.

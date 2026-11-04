@@ -78,9 +78,81 @@ metabolic:
       severe_kidney_damage: [15,29] # ml/min/BSA
       esrd: [1,15] # ml/min/BSA
 cardiovascular:
+  # used when lifecycle.vitals.body_temperature.model = continuous (ContinuousBodyTemperatureGenerator), degrees
+  # Celsius. Afebrile outpatient readings average 36.6 with 95% in 35.7-37.3 (35,488 patients, mean age 53, 64%
+  # women; Obermeyer et al., BMJ 2017), so the SDs add up to 0.4 and baseline_mean + female_offset * 0.64 + the
+  # rhythm at clinic_hour gives 36.6. How that spread divides among the SDs is a placeholder. Temperature falls
+  # with age and women run a little higher: the directions are published, the sizes placeholders.
+  # The rhythm is a cosine of rhythm_amplitude, per person (normal with rhythm_amplitude_sd), lowest around 06:00
+  # and highest 16:00-18:00, about 0.5 from trough to peak (Mackowiak et al., JAMA 1992). It follows the local hour
+  # during stays (inpatient, SNF, hospice); elsewhere it is read at clinic_hour, because a person's timestep events
+  # all fall at one time of day.
+  body_temperature:
+    continuous:
+      baseline_mean: 36.52
+      baseline_sd: 0.18
+      female_offset: 0.05
+      age_slope_per_decade: -0.03
+      reference_age: 53
+      rhythm_amplitude: 0.25
+      rhythm_amplitude_sd: 0.05
+      rhythm_peak_hour: 17
+      clinic_hour: 12
+      slow_sd: 0.1
+      slow_tau_hours: 48
+      fast_sd: 0.25
+      fast_tau_hours: 4
+      measurement_sd: 0.2
   oxygen_saturation:
     normal: [90,99] # https://www.mayoclinic.org/symptoms/hypoxemia/basics/definition/sym-20050930
     hypoxemia: [75,89] # https://en.wikipedia.org/wiki/Oxygen_saturation_(medicine)#Medical_significance
+    # used when lifecycle.vitals.oxygen_saturation.model = continuous (ContinuousOxygenSaturationGenerator).
+    # deficit below 100 = (personal deficit + age + conditions) x slow x fast x night; healthy awake adults read
+    # about 95-99 and fall a little with age (Apple Heart and Movement Study, npj Digit Med 2023). The personal
+    # deficit is log-normal, the deviations are log-normal factors (a sicker patient swings more), measurement_sd is
+    # per-minute noise. night_factor: the deficit grows by this share at the trough during stays, a raised cosine
+    # around night_trough_hour.
+    # oxygen: in an inpatient, nursing, hospice or emergency encounter, once the room-air level (without the fast
+    # deviation, so a patient does not flicker on and off) is below start_below (guidelines start oxygen below 90 in
+    # acute heart failure), efficacy of the gap to target is closed over ramp_hours from the start of the encounter,
+    # so the first reading is on room air. A lift below min_lift counts as none, so nobody is on a trickle of oxygen
+    # (2 L/min by nasal cannula, about 28%, is a typical start). The oxygen concentration is 21 + fio2_per_point * lift +
+    # fio2_per_point_squared * lift^2 (placeholder: about 28% for a lift of 4 points, 40% for 8).
+    # acute_encounter: an emergency or inpatient encounter whose reason is one of these chronic conditions (Synthea
+    # records no separate exacerbation) adds this deficit: strongest at arrival, falling with resolution_hours to
+    # residual, scaled by a severity drawn per encounter. An acute MI cohort read 95 / 92 / 85 by Killip class
+    # 1 / 2 / 3 (Rev Esp Cardiol 2012); a typical heart failure admission here arrives near 92.
+    # Other values are placeholders, not yet calibrated against observed inpatient data.
+    continuous:
+      baseline_deficit_median: 2.3
+      baseline_deficit_log_sd: 0.3
+      age_slope_per_decade: 0.2
+      age_slope_from: 40
+      slow_log_sd: 0.15
+      slow_tau_hours: 48
+      fast_log_sd: 0.2
+      fast_tau_hours: 2
+      measurement_sd: 0.7
+      night_factor: 0.4
+      night_trough_hour: 3
+      night_half_width_hours: 6
+      combination_weight: 0.5
+      oxygen:
+        start_below: 90
+        softness: 0.5
+        target: 94
+        efficacy: 0.9
+        ramp_hours: 1
+        min_lift: 1
+        fio2_per_point: 1.0
+        fio2_per_point_squared: 0.15
+      acute_encounter:
+        # Chronic congestive heart failure; Heart failure; Chronic obstructive bronchitis; Pulmonary emphysema
+        codes: ['88805009', '84114007', '185086009', '87433001']
+        deficit: 5
+        resolution_hours: 48
+        residual: 0.2
+        severity_sd: 0.4
   # stroke:
   #   #https://www.heart.org/idc/groups/heart-public/@wcm/@sop/@smd/documents/downloadable/ucm_449858.pdf
   #   rate_20_39: [0.002, 0.007] #Prevalence of stroke by age and sex (Male, Female)
@@ -127,6 +199,8 @@ vital_sign_effect_bounds:
   respiration_rate: [6, 60]
   systolic_blood_pressure: [50, 250]
   diastolic_blood_pressure: [25, 150]
+  body_temperature: [33, 42]
+  oxygen_saturation: [50, 100]
 # How conditions raise heart and respiration rate (ConditionVitalSignEffects). Used by the continuous
 # model when lifecycle.vitals.heart_and_respiration_rate.condition_effects = true.
 # Each effect adds its offset while one of its conditions (SNOMED codes, as recorded in the health
@@ -155,6 +229,14 @@ vital_sign_effect_bounds:
 # compound towards 0 instead of below it. Septic shock puts a typical normotensive patient at a mean
 # arterial pressure below 65 mmHg at onset (Sepsis-3 shock criterion) with a shock index (heart rate /
 # systolic) above 1; sepsis alone leaves MAP near 85.
+# Body temperature (lifecycle.vitals.body_temperature.model = continuous): body_temperature is an offset in
+# degrees C. reversal: a share of episodes act with another offset instead, drawn per person, effect and onset:
+# in a severe sepsis cohort 26% were at or below 36.5 (160 of 624; Kushimoto et al., Crit Care 2013). Pneumonia is
+# calibrated to a median of 3 days to 37.2 or below (Halm et al., JAMA 1998). Other sizes are clinically plausible
+# placeholders. Oxygen saturation (lifecycle.vitals.oxygen_saturation.model = continuous): oxygen_saturation is
+# in points of saturation (negative lowers it). Pneumonia is calibrated to 28% of admissions at or below 90 on room
+# air (Bewick et al., Prim Care Respir J 2010) and a median of 3 days to 90 or above (Halm et al.). Other sizes
+# are placeholders. Effects with neither heart_rate nor respiration_rate leave those two untouched.
 vital_sign_condition_effects:
   recovery_hours: 12
   combination_weight: 0.5
@@ -164,6 +246,9 @@ vital_sign_condition_effects:
   effects:
     septic_shock:
       codes: ['76571007', '27942005'] # Septic shock; Shock
+      body_temperature: 1.4
+      oxygen_saturation: -4
+      reversal: {body_temperature: {share: 0.25, offset: -1.2}}
       heart_rate: 35
       respiration_rate: 9
       systolic_blood_pressure: -0.32
@@ -176,6 +261,9 @@ vital_sign_condition_effects:
       # Sepsis; Sepsis caused by virus; by Pseudomonas; by Staphylococcus aureus; Postoperative
       # sepsis; Bacteremia
       codes: ['91302008', '770349000', '448813005', '448417001', '698819004', '5758002']
+      body_temperature: 1.6
+      oxygen_saturation: -2
+      reversal: {body_temperature: {share: 0.25, offset: -1.0}}
       heart_rate: 25
       respiration_rate: 7
       systolic_blood_pressure: -0.08
@@ -186,6 +274,8 @@ vital_sign_condition_effects:
       treated_by: [antibiotic]
     ards:
       codes: ['67782005'] # Acute respiratory distress syndrome
+      body_temperature: 0.8
+      oxygen_saturation: -12
       heart_rate: 20
       respiration_rate: 14
       max_days: 14
@@ -193,6 +283,8 @@ vital_sign_condition_effects:
       residual: 0.2
     respiratory_failure:
       codes: ['65710008', '271825005'] # Acute respiratory failure; Respiratory distress
+      body_temperature: 0.3
+      oxygen_saturation: -10
       heart_rate: 15
       respiration_rate: 10
       max_days: 10
@@ -204,14 +296,17 @@ vital_sign_condition_effects:
       # above heart rate 100 / respiration rate 24 at admission reach a day whose worst reading is at
       # or below it after a median of 2 / 3 days on antibiotics (VitalSignEffectsRealismTest).
       codes: ['233604007']
+      body_temperature: 1.4
+      oxygen_saturation: -4.2
       heart_rate: 20
       respiration_rate: 12
       max_days: 14
-      resolution_hours: {heart_rate: 36, respiration_rate: 144}
+      resolution_hours: {heart_rate: 36, respiration_rate: 144, body_temperature: 48, oxygen_saturation: 216}
       residual: 0.1
       treated_by: [antibiotic]
     hypoxemia:
       codes: ['389087006']
+      oxygen_saturation: -9
       heart_rate: 10
       respiration_rate: 5
       max_days: 14
@@ -219,6 +314,8 @@ vital_sign_condition_effects:
       residual: 0.1
     pulmonary_embolism:
       codes: ['706870000'] # Acute pulmonary embolism
+      body_temperature: 0.5
+      oxygen_saturation: -3
       heart_rate: 20
       respiration_rate: 6
       max_days: 7
@@ -227,6 +324,7 @@ vital_sign_condition_effects:
       treated_by: [anticoagulant]
     fever:
       codes: ['386661006'] # Fever (finding), about 1.5 degrees C
+      body_temperature: 1.5
       heart_rate: 13
       respiration_rate: 3
       max_days: 7
@@ -234,6 +332,7 @@ vital_sign_condition_effects:
       treated_by: [antipyretic]
     perforated_appendix:
       codes: ['47693006'] # Rupture of appendix
+      body_temperature: 1.4
       heart_rate: 18
       respiration_rate: 4
       max_days: 7
@@ -242,6 +341,7 @@ vital_sign_condition_effects:
       treated_by: [antibiotic]
     acute_abdominal_or_renal_infection:
       codes: ['74400008', '65275009', '45816000'] # Appendicitis; Acute cholecystitis; Pyelonephritis
+      body_temperature: 1.0
       heart_rate: 12
       respiration_rate: 3
       max_days: 7
@@ -250,6 +350,7 @@ vital_sign_condition_effects:
       treated_by: [antibiotic]
     acute_heart_failure:
       codes: ['84114007'] # Heart failure
+      oxygen_saturation: -3
       heart_rate: 12
       respiration_rate: 5
       max_days: 14
@@ -259,6 +360,8 @@ vital_sign_condition_effects:
     myocardial_infarction:
       # Myocardial infarction; Acute STEMI; Acute NSTEMI; Postoperative myocardial infarction
       codes: ['22298006', '401303003', '401314000', '129574000']
+      body_temperature: 0.4
+      oxygen_saturation: -1
       heart_rate: 10
       respiration_rate: 2
       max_days: 5
@@ -266,6 +369,7 @@ vital_sign_condition_effects:
       residual: 0.1
     hip_fracture:
       codes: ['359817006'] # Closed fracture of hip
+      body_temperature: 0.3
       heart_rate: 8
       respiration_rate: 2
       max_days: 7
@@ -273,6 +377,7 @@ vital_sign_condition_effects:
       residual: 0.2
     chronic_heart_failure:
       codes: ['88805009'] # Chronic congestive heart failure
+      oxygen_saturation: -1
       heart_rate: 5
       respiration_rate: 2
     atrial_fibrillation:
@@ -282,6 +387,37 @@ vital_sign_condition_effects:
       codes: ['271737000']
       heart_rate: 8
       respiration_rate: 1
+    streptococcal_sore_throat:
+      codes: ['43878008']
+      body_temperature: 1.4
+      max_days: 7
+      resolution_hours: 48
+      treated_by: [antibiotic]
+    viral_respiratory_infection:
+      # Acute viral pharyngitis; Acute bronchitis; Viral sinusitis; Sinusitis; Otitis media
+      codes: ['195662009', '10509002', '444814009', '36971009', '65363002']
+      body_temperature: 0.7
+      max_days: 7
+      resolution_hours: 48
+    covid19:
+      codes: ['840539006']
+      body_temperature: 1.3
+      oxygen_saturation: -4
+      max_days: 21
+      resolution_hours: 96
+      residual: 0.1
+    cystitis:
+      codes: ['307426000'] # Acute infective cystitis, without fever unless it reaches the kidney
+      body_temperature: 0.3
+      max_days: 7
+      resolution_hours: 36
+      treated_by: [antibiotic]
+    copd:
+      codes: ['185086009', '87433001'] # Chronic obstructive bronchitis; Pulmonary emphysema
+      oxygen_saturation: -3
+    lung_cancer:
+      codes: ['254637007', '254632001'] # Non-small cell lung cancer; Small cell carcinoma of lung
+      oxygen_saturation: -2
 # How medications change heart and respiration rate (MedicationVitalSignEffects). Used by the continuous
 # model when lifecycle.vitals.heart_and_respiration_rate.medication_effects = true.
 # vital_sign_drug_classes.csv assigns each drug code Synthea can prescribe to a class. For each vital sign
@@ -325,6 +461,12 @@ vital_sign_medication_effects:
       adherence: 0.6
       response: [0.5, 1.5]
       washout_hours: 24
+    antipyretic: # placeholder: brings a fever down partly, without acting on a normal temperature
+      body_temperature: {shift: 0, blunting: 0.3}
+      adherence: 0.8
+      response: [0.5, 1.5]
+      washout_hours: 6
+      administration_hours: 6
 weightloss:
   # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4990387/
   adherence: 0.605

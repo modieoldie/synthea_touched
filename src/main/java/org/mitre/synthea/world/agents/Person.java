@@ -562,10 +562,12 @@ public class Person implements Serializable, RandomNumberGenerator, QuadTreeElem
       case HEART_RATE:
       case RESPIRATION_RATE:
       case MEAN_ARTERIAL_PRESSURE:
+      case INHALED_OXYGEN:
         decimalPlaces = 0;
         break;
       case HEIGHT:
       case WEIGHT:
+      case BODY_TEMPERATURE:
         decimalPlaces = 1;
         break;
       default:
