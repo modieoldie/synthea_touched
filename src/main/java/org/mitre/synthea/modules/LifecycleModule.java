@@ -1070,6 +1070,56 @@ public final class LifecycleModule extends Module {
     }
   }
 
+  /** Whether this module gives the vital sign a continuous model. */
+  public static boolean hasContinuousModel(VitalSign vitalSign) {
+    switch (vitalSign) {
+      case HEART_RATE:
+      case RESPIRATION_RATE:
+        return CONTINUOUS_HEART_AND_RESPIRATION_RATE;
+      case SYSTOLIC_BLOOD_PRESSURE:
+      case DIASTOLIC_BLOOD_PRESSURE:
+        return CONTINUOUS_BLOOD_PRESSURE;
+      case BODY_TEMPERATURE:
+        return CONTINUOUS_BODY_TEMPERATURE;
+      case OXYGEN_SATURATION:
+        return CONTINUOUS_OXYGEN_SATURATION;
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * A new generator giving the same values as the continuous model this module gives the person,
+   * or null if the vital sign is not on a continuous model.
+   */
+  public static ValueGenerator newContinuousGenerator(Person person, VitalSign vitalSign) {
+    switch (vitalSign) {
+      case HEART_RATE:
+        return CONTINUOUS_HEART_AND_RESPIRATION_RATE ? new ContinuousVitalSignGenerator(person,
+            vitalSign.ordinal() + 1, HEART_RATE_NORMAL[0], HEART_RATE_NORMAL[1],
+            HEART_RATE_CONTINUOUS, HEART_RATE_EFFECTS) : null;
+      case RESPIRATION_RATE:
+        return CONTINUOUS_HEART_AND_RESPIRATION_RATE ? new ContinuousVitalSignGenerator(person,
+            vitalSign.ordinal() + 1, RESPIRATION_RATE_NORMAL[0], RESPIRATION_RATE_NORMAL[1],
+            RESPIRATION_RATE_CONTINUOUS, RESPIRATION_RATE_EFFECTS) : null;
+      case SYSTOLIC_BLOOD_PRESSURE:
+      case DIASTOLIC_BLOOD_PRESSURE:
+        return CONTINUOUS_BLOOD_PRESSURE ? new ContinuousBloodPressureGenerator(person,
+            vitalSign == VitalSign.SYSTOLIC_BLOOD_PRESSURE ? SysDias.SYSTOLIC : SysDias.DIASTOLIC,
+            BLOOD_PRESSURE_CONTINUOUS, SYSTOLIC_EFFECTS, DIASTOLIC_EFFECTS, SYSTOLIC_BOUNDS,
+            DIASTOLIC_BOUNDS) : null;
+      case BODY_TEMPERATURE:
+        return CONTINUOUS_BODY_TEMPERATURE ? new ContinuousBodyTemperatureGenerator(person,
+            BODY_TEMPERATURE_CONTINUOUS, BODY_TEMPERATURE_EFFECTS, BODY_TEMPERATURE_BOUNDS) : null;
+      case OXYGEN_SATURATION:
+        return CONTINUOUS_OXYGEN_SATURATION ? new ContinuousOxygenSaturationGenerator(person,
+            OXYGEN_SATURATION_CONTINUOUS, OXYGEN_SATURATION_EFFECTS, OXYGEN_SATURATION_BOUNDS)
+            : null;
+      default:
+        return null;
+    }
+  }
+
   /**
    * Estimate the person's HbA1c using BMI and whether or not they have diabetes or prediabetes as a
    * rough guideline.

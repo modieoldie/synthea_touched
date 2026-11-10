@@ -2,6 +2,7 @@ package org.mitre.synthea.helpers;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
@@ -12,14 +13,14 @@ import org.mitre.synthea.world.concepts.HealthRecord.Encounter;
 import org.mitre.synthea.world.concepts.HealthRecord.Entry;
 
 /**
- * The conditions and medications with listed codes in a person's health records, read incrementally
- * so dense vital sign readings do not rescan the whole record.
+ * The conditions, medications and care plans with listed codes in a person's health records,
+ * read incrementally so dense vital sign readings do not rescan the whole record.
  *
  * <p>Entries can be appended to any encounter, not only the newest, so update() tracks how many it
  * has seen per encounter. It starts over if a record's encounter list is replaced or shrinks.</p>
  */
 final class VitalSignRecordIndex {
-  /** A listed condition or medication and the encounter it was recorded in. */
+  /** A listed entry and the encounter it was recorded in. */
   static final class Item {
     final Encounter encounter;
     final Entry entry;
@@ -36,17 +37,26 @@ final class VitalSignRecordIndex {
     int encountersSeen;
     int[] conditionsSeen = new int[16];
     int[] medicationsSeen = new int[16];
+    int[] carePlansSeen = new int[16];
   }
 
   private final Set<String> conditionCodes;
   private final Set<String> medicationCodes;
+  private final Set<String> carePlanCodes;
   private final IdentityHashMap<HealthRecord, Progress> progress = new IdentityHashMap<>();
   private final List<Item> conditions = new ArrayList<>();
   private final List<Item> medications = new ArrayList<>();
+  private final List<Item> carePlans = new ArrayList<>();
 
   VitalSignRecordIndex(Set<String> conditionCodes, Set<String> medicationCodes) {
+    this(conditionCodes, medicationCodes, Collections.emptySet());
+  }
+
+  VitalSignRecordIndex(Set<String> conditionCodes, Set<String> medicationCodes,
+      Set<String> carePlanCodes) {
     this.conditionCodes = conditionCodes;
     this.medicationCodes = medicationCodes;
+    this.carePlanCodes = carePlanCodes;
   }
 
   /** Listed conditions, in no particular order. */
@@ -57,6 +67,11 @@ final class VitalSignRecordIndex {
   /** Listed medications, in no particular order. */
   List<Item> medications() {
     return medications;
+  }
+
+  /** Listed care plans, in no particular order. */
+  List<Item> carePlans() {
+    return carePlans;
   }
 
   /** Read what was added to the person's health records since the last update. */
@@ -88,6 +103,7 @@ final class VitalSignRecordIndex {
       int size = Math.max(n, 2 * p.conditionsSeen.length);
       p.conditionsSeen = Arrays.copyOf(p.conditionsSeen, size);
       p.medicationsSeen = Arrays.copyOf(p.medicationsSeen, size);
+      p.carePlansSeen = Arrays.copyOf(p.carePlansSeen, size);
     }
     for (int i = 0; i < n; i++) {
       Encounter encounter = record.encounters.get(i);
@@ -113,6 +129,17 @@ final class VitalSignRecordIndex {
         }
         p.medicationsSeen[i] = size;
       }
+      if (!carePlanCodes.isEmpty()) {
+        int seen = p.carePlansSeen[i];
+        int size = encounter.careplans.size();
+        for (int j = seen; j < size; j++) {
+          Entry carePlan = encounter.careplans.get(j);
+          if (carePlanCodes.contains(carePlan.type)) {
+            carePlans.add(new Item(encounter, carePlan));
+          }
+        }
+        p.carePlansSeen[i] = size;
+      }
     }
     p.encountersSeen = n;
   }
@@ -121,6 +148,7 @@ final class VitalSignRecordIndex {
     progress.clear();
     conditions.clear();
     medications.clear();
+    carePlans.clear();
   }
 
   /** The person's distinct health records (more than one with split records or loss of care). */

@@ -831,6 +831,9 @@ public abstract class State implements Cloneable, Serializable {
         // intentionally clear out the variable
         person.attributes.remove(attribute);
       }
+      if (person.encounterVitals != null) {
+        person.encounterVitals.attributeSet(attribute, person.attributes.get(attribute), time);
+      }
 
       return true;
     }
@@ -1898,17 +1901,17 @@ public abstract class State implements Cloneable, Serializable {
       if (isLegacyGmf()) {
         if (exact != null) {
           person.setVitalSign(vitalSign, new ConstantValueGenerator(person,
-              (double) exact.quantity));
+              (double) exact.quantity), time);
         } else if (range != null) {
           person.setVitalSign(vitalSign, new RandomValueGenerator(person,
-              (double) range.low, (double) range.high));
+              (double) range.low, (double) range.high), time);
         }
       } else {
         if (getExpProcessor().get() != null) {
           Number value = (Number) getExpProcessor().get().evaluate(person, time);
-          person.setVitalSign(vitalSign, value.doubleValue());
+          person.setVitalSign(vitalSign, value.doubleValue(), time);
         } else if (distribution != null) {
-          person.setVitalSign(vitalSign, new RandomValueGenerator(person, distribution));
+          person.setVitalSign(vitalSign, new RandomValueGenerator(person, distribution), time);
         } else {
           throw new RuntimeException(
               "VitalSign state has no exact quantity, distribution, expression"

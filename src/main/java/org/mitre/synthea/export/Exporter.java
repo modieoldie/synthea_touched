@@ -39,6 +39,7 @@ import org.mitre.synthea.export.flexporter.Mapping;
 import org.mitre.synthea.export.rif.BB2RIFExporter;
 import org.mitre.synthea.export.rif.CodeMapper;
 import org.mitre.synthea.helpers.Config;
+import org.mitre.synthea.helpers.EncounterVitalsRecorder;
 import org.mitre.synthea.helpers.TransitionMetrics;
 import org.mitre.synthea.helpers.Utilities;
 import org.mitre.synthea.identity.Entity;
@@ -245,6 +246,7 @@ public abstract class Exporter {
       wasExported = true;
       deferredExports.add(new ImmutablePair<Person, Long>(person, stopTime));
     } else {
+      EncounterVitalsRecorder.attach(person);
       if (options.yearsOfHistory > 0) {
         person = filterForExport(person, options.yearsOfHistory, stopTime);
       }

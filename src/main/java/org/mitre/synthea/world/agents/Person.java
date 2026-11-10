@@ -27,6 +27,7 @@ import org.mitre.synthea.engine.State;
 import org.mitre.synthea.helpers.Config;
 import org.mitre.synthea.helpers.ConstantValueGenerator;
 import org.mitre.synthea.helpers.DefaultRandomNumberGenerator;
+import org.mitre.synthea.helpers.EncounterVitalsRecorder;
 import org.mitre.synthea.helpers.RandomNumberGenerator;
 import org.mitre.synthea.helpers.Utilities;
 import org.mitre.synthea.helpers.ValueGenerator;
@@ -239,6 +240,10 @@ public class Person implements Serializable, RandomNumberGenerator, QuadTreeElem
   public boolean hasMultipleRecords;
   /** History of the currently active module. */
   public List<State> history;
+  /** Vital signs read through encounters, held until export; null when not recording. */
+  public EncounterVitalsRecorder.Readings encounterVitals;
+  /** Set only while the encounter vitals recorder reads a past time. */
+  public transient EncounterVitalsRecorder.PastRead pastRead;
   /** Record of insurance coverage. */
   public final CoverageRecord coverage;
 
@@ -276,53 +281,58 @@ public class Person implements Serializable, RandomNumberGenerator, QuadTreeElem
     }
   }
 
+  /** The person's random numbers, or the recorder's own while it reads a past time. */
+  private RandomNumberGenerator draws() {
+    return pastRead != null ? pastRead.random() : random;
+  }
+
   /**
    * Returns a random double.
    */
   public double rand() {
-    return random.rand();
+    return draws().rand();
   }
 
   /**
    * Returns a random boolean.
    */
   public boolean randBoolean() {
-    return random.randBoolean();
+    return draws().randBoolean();
   }
 
   /**
    * Returns a random integer.
    */
   public int randInt() {
-    return random.randInt();
+    return draws().randInt();
   }
 
   /**
    * Returns a random integer in the given bound.
    */
   public int randInt(int bound) {
-    return random.randInt(bound);
+    return draws().randInt(bound);
   }
 
   /**
    * Returns a double from a normal distribution.
    */
   public double randGaussian() {
-    return random.randGaussian();
+    return draws().randGaussian();
   }
 
   /**
    * Return a random long.
    */
   public long randLong() {
-    return random.randLong();
+    return draws().randLong();
   }
 
   /**
    * Return a random UUID.
    */
   public UUID randUUID() {
-    return random.randUUID();
+    return draws().randUUID();
   }
 
   @Override
@@ -591,7 +601,22 @@ public class Person implements Serializable, RandomNumberGenerator, QuadTreeElem
    * @param valueGenerator The value generator to use for the vital sign.
    */
   public void setVitalSign(VitalSign vitalSign, ValueGenerator valueGenerator) {
+    // Java code has no state time; its value holds from the start of this timestep
+    setVitalSign(vitalSign, valueGenerator, lastUpdated);
+  }
+
+  /**
+   * Set a vital sign's value generator from a time on.
+   *
+   * @param vitalSign The vital sign to set.
+   * @param valueGenerator The value generator to use for the vital sign.
+   * @param time The time it takes over.
+   */
+  public void setVitalSign(VitalSign vitalSign, ValueGenerator valueGenerator, long time) {
     vitalSigns.put(vitalSign, valueGenerator);
+    if (encounterVitals != null) {
+      encounterVitals.vitalSignSet(vitalSign, valueGenerator, time);
+    }
   }
 
   /**
@@ -601,12 +626,23 @@ public class Person implements Serializable, RandomNumberGenerator, QuadTreeElem
    * @param value The constant value to set for the vital sign.
    */
   public void setVitalSign(VitalSign vitalSign, double value) {
+    setVitalSign(vitalSign, value, lastUpdated);
+  }
+
+  /**
+   * Convenience function to set a vital sign to a constant value from a time on.
+   *
+   * @param vitalSign The vital sign to set.
+   * @param value The constant value to set for the vital sign.
+   * @param time The time it takes over.
+   */
+  public void setVitalSign(VitalSign vitalSign, double value, long time) {
     if (!Double.isFinite(value)) {
       throw new IllegalArgumentException(String.format(
               "Vital signs must have finite values - %s is invalid",
               Double.valueOf(value).toString()));
     }
-    setVitalSign(vitalSign, new ConstantValueGenerator(this, value));
+    setVitalSign(vitalSign, new ConstantValueGenerator(this, value), time);
   }
 
   /**

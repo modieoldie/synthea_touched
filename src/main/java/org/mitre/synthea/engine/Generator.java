@@ -31,6 +31,7 @@ import org.mitre.synthea.export.CDWExporter;
 import org.mitre.synthea.export.Exporter;
 import org.mitre.synthea.helpers.Config;
 import org.mitre.synthea.helpers.DefaultRandomNumberGenerator;
+import org.mitre.synthea.helpers.EncounterVitalsRecorder;
 import org.mitre.synthea.helpers.RandomNumberGenerator;
 import org.mitre.synthea.helpers.Utilities;
 import org.mitre.synthea.identity.Entity;
@@ -753,6 +754,7 @@ public class Generator {
     EncounterModule encounterModule = new EncounterModule();
 
     long time = person.lastUpdated;
+    EncounterVitalsRecorder.begin(person);
     while (person.alive(time) && time < stop) {
 
       // If fixed demographics are in use then check to update the person's current fixed record.
@@ -786,6 +788,7 @@ public class Generator {
         }
       }
       encounterModule.endEncounterModuleEncounters(person, time);
+      EncounterVitalsRecorder.collect(person, time);
       person.lastUpdated = time;
       HealthRecordEditors.getInstance().executeAll(person, person.record, time, timestep);
       time += timestep;
@@ -826,6 +829,7 @@ public class Generator {
 
     // If the person is dead, we need a death certificate.
     DeathModule.process(person, time);
+    EncounterVitalsRecorder.finish(person, time);
   }
 
   /**
