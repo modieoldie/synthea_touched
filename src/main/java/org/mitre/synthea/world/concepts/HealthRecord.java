@@ -164,13 +164,15 @@ public class HealthRecord implements Serializable {
    * stop times, a type, and a list of associated codes.
    */
   public class Entry implements Serializable {
+    /** The value computed before the UUID constructor was added, so snapshots still load. */
+    private static final long serialVersionUID = -7125787092704980589L;
 
     /** Reference to the HealthRecord this entry belongs to. */
     @JSONSkip
     HealthRecord record = HealthRecord.this;
 
     /** Unique identifier for the entry. */
-    public final UUID uuid = record.person.randUUID();
+    public final UUID uuid;
     /** Cached full URL used in FHIR exporters. */
     public String fullUrl;
     /** Name of the entry. */
@@ -195,6 +197,18 @@ public class HealthRecord implements Serializable {
      * @param type  the type of the entry
      */
     public Entry(long start, String type) {
+      this(start, type, null);
+    }
+
+    /**
+     * Constructor for Entry with a given identifier.
+     *
+     * @param start the start time of the entry
+     * @param type  the type of the entry
+     * @param uuid  the identifier, or null to draw one from the person's random numbers
+     */
+    public Entry(long start, String type, UUID uuid) {
+      this.uuid = uuid != null ? uuid : record.person.randUUID();
       this.start = start;
       this.type = type;
       this.codes = new ArrayList<Code>();
@@ -300,6 +314,8 @@ public class HealthRecord implements Serializable {
 
   /** An Observation for the patient record */
   public class Observation extends Entry {
+    /** The value computed before the UUID constructor was added, so snapshots still load. */
+    private static final long serialVersionUID = 4939768469336795537L;
     /** The value of this observation */
     public Object value;
     /** The category this observation falls under, bound by a valueset */
@@ -319,7 +335,18 @@ public class HealthRecord implements Serializable {
      * @param value the value of the observation
      */
     public Observation(long time, String type, Object value) {
-      super(time, type);
+      this(time, type, value, null);
+    }
+
+    /**
+     * Constructor for Observation HealthRecord Entry with a given identifier.
+     * @param time the time of the entry
+     * @param type the type of the entry
+     * @param value the value of the observation
+     * @param uuid the identifier, or null to draw one from the person's random numbers
+     */
+    public Observation(long time, String type, Object value, UUID uuid) {
+      super(time, type, uuid);
       this.value = value;
       this.observations = new ArrayList<Observation>();
     }
