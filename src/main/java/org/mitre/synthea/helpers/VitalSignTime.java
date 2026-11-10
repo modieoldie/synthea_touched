@@ -18,7 +18,7 @@ import org.mitre.synthea.world.geography.Location;
 final class VitalSignTime {
   private static final long MS_PER_HOUR = 3_600_000L;
   private static final long MS_PER_DAY = 24 * MS_PER_HOUR;
-  /** How many of the person's latest encounters are searched. */
+  /** How many of the latest encounters started by the time asked are searched. */
   private static final int ENCOUNTER_SEARCH = 20;
   /** Encounters spent sleeping in a bed. */
   private static final String[] STAY_CLASSES = {EncounterType.INPATIENT.toString(),
@@ -56,10 +56,14 @@ final class VitalSignTime {
   /** The latest encounter of these classes under way at a time, or null. */
   private static Encounter ongoing(Person person, long time, String[] classes) {
     List<Encounter> encounters = person.record.encounters;
-    for (int i = encounters.size() - 1, n = 0; i >= 0 && n < ENCOUNTER_SEARCH; i--, n++) {
+    for (int i = encounters.size() - 1, n = 0; i >= 0 && n < ENCOUNTER_SEARCH; i--) {
       Encounter e = encounters.get(i);
+      if (e.start > time) {
+        continue; // later encounters don't count, so a past time reads as it did then
+      }
+      n++;
       // an encounter's stop is provisional until it has ended
-      if (e.start <= time && (!e.ended || time < e.stop) && isOneOf(e.type, classes)) {
+      if ((!e.ended || time < e.stop) && isOneOf(e.type, classes)) {
         return e;
       }
     }
