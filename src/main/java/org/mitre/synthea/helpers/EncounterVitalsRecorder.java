@@ -325,11 +325,16 @@ public final class EncounterVitalsRecorder {
         new HashSet<>(Arrays.asList(classes.split(","))), vitalSigns);
   }
 
-  /** Start recording a person; encounters already open are read from their start. */
+  /**
+   * Start recording a person; encounters already open are read from their start. With recording
+   * off, readings carried in from a snapshot are dropped.
+   */
   public static void begin(Person person) {
     EncounterVitalsRecorder recorder = Configured.INSTANCE;
     if (recorder != null) {
       recorder.start(person);
+    } else {
+      person.encounterVitals = null;
     }
   }
 
@@ -361,21 +366,36 @@ public final class EncounterVitalsRecorder {
     readings.pending.clear();
   }
 
+  /** Also resumes readings from a snapshot, which may have been recorded with other settings. */
   void start(Person person) {
-    if (person.encounterVitals != null) {
-      return;
+    Readings readings = person.encounterVitals;
+    if (readings == null) {
+      readings = new Readings();
+      person.encounterVitals = readings;
     }
-    Readings readings = new Readings();
+    readings.waiting.removeIf(waiting -> !chosen(waiting.encounter));
+    Set<Encounter> queued = Collections.newSetFromMap(new IdentityHashMap<>());
+    for (Waiting waiting : readings.waiting) {
+      queued.add(waiting.encounter);
+    }
     for (HealthRecord record : VitalSignRecordIndex.records(person)) {
-      readings.scanned.put(record, record.encounters.size());
-      for (Encounter encounter : record.encounters) {
-        if (!encounter.ended && chosen(encounter)) {
+      // read() picks up encounters past the scanned ones
+      int scanned = Math.min(readings.scanned.getOrDefault(record, record.encounters.size()),
+          record.encounters.size());
+      for (int i = 0; i < scanned; i++) {
+        Encounter encounter = record.encounters.get(i);
+        if (!encounter.ended && chosen(encounter) && !queued.contains(encounter)) {
           readings.waiting.add(new Waiting(record, encounter));
         }
       }
+      readings.scanned.put(record, scanned);
     }
+    readings.generators.keySet().retainAll(vitalSigns);
     // earlier generators and flags are unknown, so these stand for them
     for (VitalSign vitalSign : vitalSigns) {
+      if (readings.generators.containsKey(vitalSign)) {
+        continue;
+      }
       List<Change> changes = new ArrayList<>();
       ValueGenerator generator = person.vitalSigns.get(vitalSign);
       if (generator == null || generator instanceof TrendingValueGenerator
@@ -389,15 +409,19 @@ public final class EncounterVitalsRecorder {
       readings.generators.put(vitalSign, changes);
     }
     for (String name : TRACKED_ATTRIBUTES) {
+      if (readings.attributes.containsKey(name)) {
+        continue;
+      }
       List<Change> changes = new ArrayList<>();
       changes.add(new Change(Long.MIN_VALUE, person.attributes.get(name)));
       readings.attributes.put(name, changes);
     }
-    person.encounterVitals = readings;
   }
 
   void read(Person person, long time, boolean last) {
-    start(person);
+    if (person.encounterVitals == null) {
+      start(person);
+    }
     Readings readings = person.encounterVitals;
     for (HealthRecord record : VitalSignRecordIndex.records(person)) {
       List<Encounter> encounters = record.encounters;
@@ -427,7 +451,8 @@ public final class EncounterVitalsRecorder {
           readings.pending.add(new Held(encounter, observations));
         }
       }
-      if (last || waiting.next >= end) {
+      // an encounter still open at the end stays, so a run from a snapshot carries on from here
+      if (waiting.next >= end) {
         it.remove();
       } else {
         horizon = Math.min(horizon, waiting.next);

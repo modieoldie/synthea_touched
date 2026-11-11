@@ -3,6 +3,7 @@ package org.mitre.synthea.helpers;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.math.BigDecimal;
@@ -19,6 +20,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import org.apache.commons.lang3.SerializationUtils;
 import org.junit.Test;
 import org.mitre.synthea.modules.BloodPressureValueGenerator;
 import org.mitre.synthea.modules.BloodPressureValueGenerator.SysDias;
@@ -339,6 +341,59 @@ public class EncounterVitalsRecorderTest {
     EncounterVitalsRecorder.attach(person);
     assertEquals(1, ended.observations.size());
     assertEquals(range(48, 78), hours(open, RESPIRATION_RATE));
+  }
+
+  @Test
+  public void recordingOffDropsReadingsFromASnapshot() {
+    EncounterVitalsRecorder recorder = hourly("inpatient");
+    Person person = recorded(recorder, 47L);
+    Encounter stay = stay(person);
+    recorder.read(person, AFTERNOON + 7 * DAY, false);
+    // recording is off in tests, as in a run from this snapshot with it off
+    EncounterVitalsRecorder.begin(person);
+    assertNull(person.encounterVitals);
+    EncounterVitalsRecorder.attach(person);
+    assertEquals(1, stay.observations.size());
+  }
+
+  @Test
+  public void runFromASnapshotCarriesOnAnOpenStay() {
+    EncounterVitalsRecorder recorder = hourly("inpatient");
+    Person person = recorded(recorder, 53L);
+    Encounter stay = person.record.encounterStart(AFTERNOON, EncounterType.INPATIENT);
+    recorder.read(person, AFTERNOON + 10 * HOUR + 30 * MINUTE, true);
+
+    Person resumed = SerializationUtils.clone(person);
+    Encounter resumedStay = resumed.record.encounters.get(0);
+    recorder.start(resumed);
+    resumed.record.encounterEnd(AFTERNOON + 2 * DAY, EncounterType.INPATIENT);
+    recorder.read(resumed, AFTERNOON + 7 * DAY, false);
+    EncounterVitalsRecorder.attach(resumed);
+    assertEquals(range(0, 48), hours(resumedStay, RESPIRATION_RATE));
+    assertEquals(range(0, 48), hours(resumedStay, SYSTOLIC));
+    assertTrue(stay.observations.isEmpty());
+  }
+
+  @Test
+  public void runFromASnapshotFollowsTheSettingsNow() {
+    EncounterVitalsRecorder before = new EncounterVitalsRecorder(HOUR,
+        new HashSet<>(Arrays.asList("inpatient")), EnumSet.of(VitalSign.HEART_RATE));
+    Person person = recorded(before, 59L);
+    Encounter stay = person.record.encounterStart(AFTERNOON, EncounterType.INPATIENT);
+    Encounter emergency = person.record.encounterStart(AFTERNOON, EncounterType.EMERGENCY);
+    before.read(person, AFTERNOON + 10 * HOUR + 30 * MINUTE, true);
+
+    EncounterVitalsRecorder now = hourly("emergency");
+    now.start(person);
+    person.record.encounterEnd(AFTERNOON + 20 * HOUR, EncounterType.EMERGENCY);
+    person.record.encounterEnd(AFTERNOON + 2 * DAY, EncounterType.INPATIENT);
+    now.read(person, AFTERNOON + 7 * DAY, false);
+    EncounterVitalsRecorder.attach(person);
+    assertEquals(range(0, 11), hours(stay, HEART_RATE));
+    assertTrue(hours(stay, RESPIRATION_RATE).isEmpty());
+    // a class chosen now is read from its start, with every vital sign recorded now
+    assertEquals(range(0, 20), hours(emergency, HEART_RATE));
+    assertEquals(range(0, 20), hours(emergency, RESPIRATION_RATE));
   }
 
   @Test
